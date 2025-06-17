@@ -665,9 +665,10 @@
              constructor(game, x, y, platform) {
                 super(game, x, y, 80, 40, 100, 20, platform);
                 this.color = '#800080';
+                this.shockwaveCooldown = 5000;
                 this.isCharging = false;
                 this.chargeTimer = 0;
-                this.chargeDuration = 3000; // *** 修正: 蓄力時間縮短 ***
+                this.chargeDuration = 3000;
              }
              update(deltaTime) {
                 if (this.y > this.game.height * 2) {
@@ -681,13 +682,19 @@
                         this.detonate();
                     }
                 } else {
-                   super.update(deltaTime);
-                   this.isCharging = true;
-                   this.chargeTimer = this.chargeDuration;
+                    super.update(deltaTime);
+                    if (this.shockwaveCooldown > 0) {
+                         this.shockwaveCooldown -= deltaTime;
+                    }
+                    if (this.shockwaveCooldown <= 0 && this.game.player.currentPlatform === this.platform) {
+                        this.isCharging = true;
+                        this.chargeTimer = this.chargeDuration;
+                    }
                 }
              }
              detonate() {
                  this.isCharging = false;
+                 this.shockwaveCooldown = 5000;
                  this.game.camera.shakeDuration = 500;
                  this.game.camera.shakeMagnitude = 10;
 
@@ -715,7 +722,6 @@
                 context.fillRect(this.x, this.y, this.width, this.height);
                 context.strokeStyle = 'rgba(255, 255, 255, 0.5)'; context.lineWidth = 3; context.strokeRect(this.x - 3, this.y - 3, this.width + 6, this.height + 6);
 
-                // *** 修正: 畫尖刺 ***
                 context.fillStyle = 'white';
                 for(let i = 0; i < 5; i++) {
                     const spikeX = this.x + (i * this.width / 4);
@@ -732,7 +738,8 @@
              }
              takeDamage(damage, type = 'generic') {
                  if (type === 'bow' || type === 'magic' || type === 'collision') {
-                     return;
+                     this.game.floatingMessages.push(new FloatingMessage(this.game, this.x + this.width / 2, this.y, 'MISS', '#ffff00'));
+                     return; 
                  }
                  super.takeDamage(damage, type);
              }
@@ -1041,13 +1048,15 @@
                 if(this.introFadeTimer > 0) this.introFadeTimer -= deltaTime;
 
                 if (this.gameState !== 'playing') {
-                    this.player.update(new Set(), deltaTime);
+                    if (this.gameState === 'start') {
+                         this.player.update(new Set(), deltaTime);
+                    }
                     return;
                 }
                 
                 this.spawnEnemies();
                 this.player.update(this.keys, deltaTime);
-                
+            
                 this.projectiles.forEach(p => p.update(deltaTime));
                 this.projectiles = this.projectiles.filter(p => !p.markedForDeletion);
 
