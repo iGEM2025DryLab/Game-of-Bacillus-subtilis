@@ -216,10 +216,24 @@
                 this.width = width;
                 this.height = height;
                 this.color = '#5D4037';
+                this.isDamaged = false;
             }
             draw(context){
                 context.fillStyle = this.color;
-                context.fillRect(this.x, this.y, this.width, this.height);
+                if (this.isDamaged) {
+                    const jagAmount = 5;
+                    context.beginPath();
+                    context.moveTo(this.x, this.y);
+                    for(let i = this.x; i < this.x + this.width; i+= 15) {
+                        context.lineTo(i + 15, this.y + (Math.random() - 0.5) * jagAmount);
+                    }
+                    context.lineTo(this.x + this.width, this.y + this.height);
+                    context.lineTo(this.x, this.y + this.height);
+                    context.closePath();
+                    context.fill();
+                } else {
+                    context.fillRect(this.x, this.y, this.width, this.height);
+                }
             }
         }
         
@@ -298,18 +312,19 @@
                 }
 
                 if (keys.has('s') && this.onPlatform && this.currentPlatform && this.currentPlatform.y < this.game.height * 0.9) {
-                     this.y += 2; // Nudge down to fall through
+                     this.y += 5;
                 }
 
                 this.y += this.vy;
                 this.vy += this.weight;
 
                 this.onPlatform = false;
+                this.currentPlatform = null;
                 this.game.platforms.forEach(platform => {
                     const isDropping = keys.has('s');
                     
-                    if (this.vy > 0 &&
-                        (!isDropping || platform.y >= this.game.height * 0.9) && // Prevent dropping through ground
+                    if (this.vy > 0 && 
+                        (!isDropping || platform.y >= this.game.height * 0.9) && 
                         this.x + this.width > platform.x &&
                         this.x < platform.x + platform.width &&
                         this.y + this.height >= platform.y &&
@@ -494,10 +509,25 @@
                 this.speed = 3;
                 this.damage = 5;
                 this.lifespan = 5000;
+                this.attackCooldown = 2000;
                 this.markedForDeletion = false;
             }
             update(deltaTime) {
-                this.lifespan -= deltaTime; if(this.lifespan <= 0) this.markedForDeletion = true;
+                this.lifespan -= deltaTime; 
+                if(this.lifespan <= 0) this.markedForDeletion = true;
+                if (this.y > this.game.height * 2) this.markedForDeletion = true;
+
+                this.attackCooldown -= deltaTime;
+                if (this.attackCooldown <= 0) {
+                    this.attackCooldown = 2000;
+                    const magicDamage = 20;
+                    const companionDamage = magicDamage * 0.8;
+                    for(let i = 0; i < 8; i++){
+                        const angle = (Math.PI * 2 / 8) * i;
+                        this.game.projectiles.push(new Projectile(this.game, this.x + this.width/2, this.y + this.height/2, companionDamage, 'player', null, angle, 5));
+                    }
+                }
+                
                 let closestEnemy = null; let minDistance = Infinity;
                 this.game.enemies.forEach(enemy => {
                     const distance = Math.hypot(this.x - enemy.x, this.y - enemy.y);
@@ -507,8 +537,6 @@
                     const angle = Math.atan2(closestEnemy.y + closestEnemy.height/2 - (this.y + this.height/2), closestEnemy.x + closestEnemy.width/2 - (this.x + this.width/2));
                     this.x += Math.cos(angle) * this.speed; this.y += Math.sin(angle) * this.speed;
                 } else { this.x += this.speed; }
-
-                if (this.y > this.game.height * 2) this.markedForDeletion = true;
             }
             draw(context) { context.save(); context.fillStyle = 'lightgreen'; context.globalAlpha = this.lifespan / 5000; context.fillRect(this.x, this.y, this.width, this.height); context.restore(); }
         }
@@ -556,6 +584,9 @@
              }
              draw(context) {
                 context.fillStyle = this.color || 'red'; context.fillRect(this.x, this.y, this.width, this.height);
+                this.drawHealthBar(context);
+             }
+             drawHealthBar(context) {
                 if(this.health < this.maxHealth){
                     const healthBarY = this.y - 10;
                     context.fillStyle = 'darkred'; context.fillRect(this.x, healthBarY, this.width, 5);
@@ -588,7 +619,6 @@
                 }
                 
                 if (this.game.level === 1) {
-                    // 第一關：看見就打
                     super.update(deltaTime);
                     const playerOnScreen = Math.abs(this.game.player.x - this.x) < this.game.width / this.game.scale;
                     if(playerOnScreen && this.attackCooldown <= 0) {
@@ -597,7 +627,6 @@
                         this.game.projectiles.push(new Projectile(this.game, this.x, this.y + this.height / 2, 5, 'enemy', direction));
                     }
                 } else {
-                    // 其他關卡：邊緣才打
                     const nextX = this.x + this.speedX;
                     const atLeftEdge = this.platform && nextX <= this.platform.x;
                     const atRightEdge = this.platform && nextX + this.width >= this.platform.x + this.platform.width;
@@ -627,7 +656,7 @@
             }
             draw(context){
                 context.fillStyle = this.color; context.beginPath(); context.arc(this.x + this.width / 2, this.y + this.height/2, this.width/2, 0, Math.PI * 2); context.fill();
-                super.draw(context);
+                this.drawHealthBar(context);
             }
         }
         
@@ -665,24 +694,32 @@
                  this.chargeCooldown = 8000 + Math.random() * 2000;
                  this.game.camera.shakeDuration = 500;
                  this.game.camera.shakeMagnitude = 10;
+
+                 if (this.platform) {
+                    this.platform.isDamaged = true;
+                 }
+
                  const player = this.game.player;
-                 if (player.onPlatform && this.platform && player.y + player.height > this.platform.y && player.y < this.platform.y + this.platform.height) {
+                 if (player.currentPlatform === this.platform) {
                      player.takeDamage(30);
                  }
              }
              draw(context) {
+                let drawColor = this.color;
                 if (this.isCharging) {
                     const ratio = 1 - (this.chargeTimer / this.chargeDuration);
                     const flashSpeed = 10 + ratio * 40; 
-                    const flash = Math.floor(this.chargeTimer / (1000 / flashSpeed)) % 2 === 0;
-                    context.fillStyle = flash ? '#ff0000' : this.color;
-                } else {
-                     context.fillStyle = this.color;
+                    const flash = Math.floor(Date.now() / (1000 / flashSpeed)) % 2 === 0;
+                    if (flash) {
+                        drawColor = '#ff0000';
+                    }
                 }
                 
+                context.fillStyle = drawColor;
                 context.fillRect(this.x, this.y, this.width, this.height);
                 context.strokeStyle = 'rgba(255, 255, 255, 0.5)'; context.lineWidth = 3; context.strokeRect(this.x - 3, this.y - 3, this.width + 6, this.height + 6);
-                super.draw(context);
+                
+                this.drawHealthBar(context);
              }
         }
 
@@ -706,7 +743,7 @@
             }
             draw(context) {
                 context.fillStyle = this.color; context.beginPath(); context.moveTo(this.x, this.y + this.height); context.quadraticCurveTo(this.x + this.width / 2, this.y - this.height / 2, this.x + this.width, this.y + this.height); context.closePath(); context.fill();
-                super.draw(context);
+                this.drawHealthBar(context);
             }
         }
         
@@ -718,25 +755,58 @@
                 this.y = this.game.height * 0.9 - this.height;
                 this.speedX = 0;
                 this.phase = 1;
-                this.attackPatternTimer = 0;
+                this.attackPatternTimer = 8000;
+                this.isWarning = false;
+                this.warningType = null;
+                this.warningTimer = 0;
+                this.warningDuration = 5000;
             }
             update(deltaTime) {
-                this.attackPatternTimer -= deltaTime;
-                if(this.attackPatternTimer <= 0) {
-                    this.executeAttackPattern(); this.attackPatternTimer = (this.phase === 1 ? 5000 : 3000) + Math.random() * 2000;
+                if(this.isWarning) {
+                    this.warningTimer -= deltaTime;
+                    if(this.warningTimer <= 0) {
+                        this.isWarning = false;
+                        if (this.warningType === 'shockwave') this.fireShockwave();
+                        if (this.warningType === 'missiles') this.fireAllRangeMissiles();
+                    }
+                } else {
+                    this.attackPatternTimer -= deltaTime;
+                    if(this.attackPatternTimer <= 0) {
+                        this.executeAttackPattern();
+                    }
                 }
+
                 if(this.health < this.maxHealth / 2 && this.phase === 1) { this.phase = 2; this.game.floatingMessages.push(new FloatingMessage(this.game, this.x, this.y, "狂暴!", 'red')); }
             }
             executeAttackPattern() {
+                this.attackPatternTimer = (this.phase === 1 ? 8000 : 6000) + Math.random() * 2000; 
                 const choice = Math.random();
-                if(choice < 0.33) { this.game.player.applyStatusEffect('slow'); this.game.floatingMessages.push(new FloatingMessage(this.game, this.game.player.x, this.game.player.y, '低溫!', 'cyan')); }
-                else if (choice < 0.66) { this.game.player.applyStatusEffect('burn'); this.game.floatingMessages.push(new FloatingMessage(this.game, this.game.player.x, this.game.player.y, '高溫!', 'orange')); }
-                else { this.game.player.applyStatusEffect('silence'); this.game.floatingMessages.push(new FloatingMessage(this.game, this.game.player.x, this.game.player.y, '抗生素!', 'gray')); }
-                if (this.phase === 2 && Math.random() < 0.5) { this.game.enemies.push(new Yeast(this.game, this.x, this.y + this.height / 2, this.game.platforms[0])); }
+                if (choice < 0.5) {
+                    this.isWarning = true;
+                    this.warningType = 'shockwave';
+                    this.warningTimer = this.warningDuration;
+                } else {
+                    this.isWarning = true;
+                    this.warningType = 'missiles';
+                    this.warningTimer = this.warningDuration;
+                }
+            }
+            fireShockwave() {
+                for(let i = 0; i < 36; i++) {
+                    const angle = (Math.PI * 2 / 36) * i;
+                    this.game.effects.push(new ShockwaveParticle(this.game, this.x + this.width / 2, this.y + this.height / 2, angle));
+                }
+            }
+            fireAllRangeMissiles() {
+                const missileCount = this.phase === 2 ? 24 : 12;
+                for(let i = 0; i < missileCount; i++){
+                    const angle = (Math.PI * 2 / missileCount) * i;
+                    this.game.projectiles.push(new Projectile(this.game, this.x + this.width/2, this.y + this.height/2, 20, 'enemy', null, angle, 4));
+                }
             }
             draw(context) {
                 context.fillStyle = this.phase === 2 ? '#C70039' : this.color; context.beginPath(); context.arc(this.x + this.width/2, this.y + this.height/2, this.width/2, 0, Math.PI * 2); context.fill();
-                super.draw(context);
+                this.drawHealthBar(context);
             }
         }
         
@@ -805,6 +875,47 @@
                 context.restore();
             }
         }
+
+        class ShockwaveParticle {
+            constructor(game, x, y, angle) {
+                this.game = game;
+                this.x = x;
+                this.y = y;
+                this.speed = 6;
+                this.vx = Math.cos(angle) * this.speed;
+                this.vy = Math.sin(angle) * this.speed;
+                this.size = 8;
+                this.lifespan = 2000;
+                this.markedForDeletion = false;
+                this.damage = 30;
+                this.type = 'shockwave';
+            }
+
+            update(deltaTime) {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.lifespan -= deltaTime;
+                if (this.lifespan <= 0) this.markedForDeletion = true;
+
+                this.game.platforms.forEach(platform => {
+                    if (this.x > platform.x && this.x < platform.x + platform.width &&
+                        this.y > platform.y && this.y < platform.y + platform.height) {
+                        this.markedForDeletion = true;
+                        this.game.createHitParticles(this.x, this.y, '#8e44ad');
+                    }
+                });
+            }
+
+            draw(context) {
+                context.save();
+                context.globalAlpha = this.lifespan / 2000;
+                context.fillStyle = 'rgba(200, 0, 255, 0.7)';
+                context.beginPath();
+                context.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                context.fill();
+                context.restore();
+            }
+        }
         
         class FloatingMessage {
             constructor(game, x, y, message, color) {
@@ -852,6 +963,7 @@
                 this.enemies = [];
                 this.particles = [];
                 this.items = [];
+                this.effects = []; // 用於衝擊波等效果
                 this.floatingMessages = [];
                 this.ui = new UI(this);
                 
@@ -913,14 +1025,12 @@
                 if(this.introFadeTimer > 0) this.introFadeTimer -= deltaTime;
 
                 if (this.gameState !== 'playing') {
-                    // 即使不在遊玩狀態，也要讓角色下落
                     this.player.update(new Set(), deltaTime);
                     return;
                 }
                 
                 this.spawnEnemies();
                 this.player.update(this.keys, deltaTime);
-                this.updateCamera(deltaTime);
             
                 this.projectiles.forEach(p => p.update(deltaTime));
                 this.projectiles = this.projectiles.filter(p => !p.markedForDeletion);
@@ -936,6 +1046,9 @@
                 
                 this.items.forEach(i => i.update(deltaTime));
                 this.items = this.items.filter(i => !i.markedForDeletion);
+                
+                this.effects.forEach(e => e.update(deltaTime));
+                this.effects = this.effects.filter(e => !e.markedForDeletion);
 
                 this.floatingMessages.forEach(m => m.update(deltaTime));
                 this.floatingMessages = this.floatingMessages.filter(m => !m.markedForDeletion);
@@ -960,6 +1073,7 @@
                 this.projectiles.forEach(p => p.draw(context));
                 this.enemies.forEach(e => e.draw(context));
                 this.particles.forEach(p => p.draw(context));
+                this.effects.forEach(e => e.draw(context));
                 this.floatingMessages.forEach(m => m.draw(context));
                 
                 context.restore();
@@ -973,6 +1087,11 @@
                     context.fillStyle = `rgba(0,0,0,${this.introFadeTimer / 1000})`;
                     context.fillRect(0,0,this.width, this.height);
                     context.restore();
+                }
+
+                if(this.enemies.some(e => e instanceof MegaBoss && e.isWarning)){
+                    const boss = this.enemies.find(e => e instanceof MegaBoss);
+                    this.drawWarning(context, boss.warningType, boss.warningTimer);
                 }
 
                 if (this.gameOver) this.drawGameOverScreen(context, '遊戲結束');
@@ -1014,7 +1133,8 @@
                 const tempPlayerX = this.width / 2;
                 const tempPlayerY = this.height * 0.5;
                 context.translate(tempPlayerX, tempPlayerY);
-                context.scale(this.scale, this.scale);
+                context.scale(this.scale * 1.5, this.scale * 1.5); // 放大顯示
+                context.translate(-this.player.width/2, -this.player.height/2);
                 this.player.draw(context);
                 context.restore();
                 
@@ -1044,6 +1164,27 @@
                 context.fillText(`第 ${this.level - 1} 關完成`, this.width / 2, this.height / 2 - 20 * this.scale);
                 context.font = `${20 * this.scale}px "Microsoft JhengHei"`;
                 context.fillText('準備進入下一關...', this.width / 2, this.height / 2 + 20 * this.scale);
+                context.restore();
+            }
+            drawWarning(context, type, timer) {
+                context.save();
+                const text = type === 'shockwave' ? '衝擊波預備' : '全方位飛彈預備';
+                const flash = Math.floor(timer / 500) % 2 === 0;
+
+                context.globalAlpha = 0.5;
+                context.strokeStyle = '#8e44ad';
+                context.lineWidth = 20 * this.scale;
+                context.strokeRect(0, 0, this.width, this.height);
+                context.globalAlpha = 1.0;
+
+                if (flash) {
+                    context.textAlign = 'center';
+                    context.fillStyle = '#ff0000';
+                    context.font = `${60 * this.scale}px "Microsoft JhengHei"`;
+                    context.shadowColor = 'black';
+                    context.shadowBlur = 10;
+                    context.fillText(text, this.width / 2, this.height / 2);
+                }
                 context.restore();
             }
 
@@ -1102,6 +1243,13 @@
                     if(this.isColliding(this.player, item)) {
                         item.applyEffect(this.player);
                         item.markedForDeletion = true;
+                    }
+                });
+                
+                this.effects.forEach(effect => {
+                    if (effect.type === 'shockwave' && this.isColliding(this.player, effect)) {
+                        this.player.takeDamage(effect.damage);
+                        effect.markedForDeletion = true;
                     }
                 });
             }
@@ -1219,6 +1367,7 @@
                 this.enemies = [];
                 this.particles = [];
                 this.items = [];
+                this.effects = [];
                 this.floatingMessages = [];
                 this.gameState = 'playing';
             }
