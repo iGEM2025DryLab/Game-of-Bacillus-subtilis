@@ -209,16 +209,17 @@
         }
         
         class Platform {
-            constructor(game, x, y, width, height, isTemporary = false) {
+            constructor(game, x, y, width, height, isTemporary = false, isWax = false) {
                 this.game = game;
                 this.x = x;
                 this.y = y;
                 this.width = width;
                 this.height = height;
                 this.isTemporary = isTemporary;
-                this.isWax = false; // 用於區分蠟質平台
+                this.isWax = isWax;
+                this.isDamaged = false;
                 if(this.isTemporary){
-                    this.lifespan = 10000; // 10 秒
+                    this.lifespan = 17500; // 17.5 秒
                 }
             }
             update(deltaTime) {
@@ -228,7 +229,14 @@
                 }
             }
             draw(context){
-                context.fillStyle = this.isWax ? 'rgba(240, 230, 140, 0.7)' : '#5D4037';
+                context.save();
+                if(this.isWax) {
+                    context.globalAlpha = Math.max(0, this.lifespan / 17500);
+                    context.fillStyle = 'rgba(240, 230, 140, 0.7)';
+                } else {
+                    context.fillStyle = '#5D4037';
+                }
+
                 context.fillRect(this.x, this.y, this.width, this.height);
                  if (this.isDamaged) {
                     const jagAmount = 5;
@@ -240,6 +248,34 @@
                         context.lineTo(i + 15, this.y + (Math.random() - 0.5) * jagAmount);
                     }
                     context.stroke();
+                }
+                context.restore();
+            }
+        }
+
+        class WaxPlatform extends Platform {
+            constructor(game, player) {
+                super(game, player.x, player.y + player.height, player.width, 20, true, true);
+                this.owner = player;
+                this.extendableTimer = 1500;
+                this.minX = this.x;
+                this.maxX = this.x + this.width;
+                this.maxWidth = 250;
+            }
+            update(deltaTime) {
+                super.update(deltaTime); // 處理生命週期
+                if (this.extendableTimer > 0) {
+                    this.extendableTimer -= deltaTime;
+                    this.minX = Math.min(this.minX, this.owner.x);
+                    this.maxX = Math.max(this.maxX, this.owner.x + this.owner.width);
+                    
+                    if (this.maxX - this.minX < this.maxWidth) {
+                        this.x = this.minX;
+                        this.width = this.maxX - this.minX;
+                    } else {
+                        // 達到最大寬度後停止延伸
+                        this.extendableTimer = 0;
+                    }
                 }
             }
         }
@@ -304,7 +340,7 @@
                 
                 this.speedX = 0;
                 let currentMaxSpeed = this.maxSpeed;
-                if (this.onPlatform && this.currentPlatform.isWax) currentMaxSpeed *= 0.5; // 蠟質減速
+                if (this.onPlatform && this.currentPlatform.isWax) currentMaxSpeed *= 0.5;
                 if (this.statusEffects.slow.active) currentMaxSpeed *= 0.5;
 
                 if (keys.has('a')) {
@@ -460,13 +496,11 @@
                     this.isStealth = true; this.stealthTimer = this.stealthDuration;
                 }
             }
-            useWax() {
-                if(this.energy >= 60 && this.onPlatform) {
-                    this.energy -= 60;
+             useWax() {
+                if(this.energy >= 30 && this.onPlatform && this.skillCooldown.wax <= 0) {
+                    this.energy -= 30;
                     this.skillCooldown.wax = this.skillCooldownTime.wax;
-                    const waxWidth = 120;
-                    const wax = new Platform(this.game, this.x - waxWidth/2 + this.width/2, this.y + this.height - 10, waxWidth, 20, true);
-                    wax.isWax = true;
+                    const wax = new WaxPlatform(this.game, this);
                     this.game.platforms.push(wax);
                 }
             }
@@ -531,7 +565,7 @@
                 this.speed = 3;
                 this.damage = 5;
                 this.lifespan = 5000;
-                this.attackCooldown = 500; // *** 修正: CD 0.5s ***
+                this.attackCooldown = 500; 
                 this.markedForDeletion = false;
             }
             update(deltaTime) {
@@ -1055,6 +1089,7 @@
                          if (key === 'enter') {
                              this.gameState = 'playing';
                              this.introFadeTimer = 1000; 
+                             this.setPlayerInitialPosition();
                          }
                          return;
                     }
@@ -1076,8 +1111,8 @@
                 if(this.introFadeTimer > 0) this.introFadeTimer -= deltaTime;
 
                 if (this.gameState !== 'playing') {
-                    if (this.gameState === 'start') {
-                         // 在開始畫面時不更新玩家
+                     if (this.gameState === 'start') {
+                         // 不更新
                     }
                     return;
                 }
@@ -1103,7 +1138,9 @@
                 this.effects.forEach(e => e.update(deltaTime));
                 this.effects = this.effects.filter(e => !e.markedForDeletion);
                 
-                this.platforms.forEach(p => p.update(deltaTime));
+                this.platforms.forEach(p => {
+                    if(p.update) p.update(deltaTime);
+                });
                 this.platforms = this.platforms.filter(p => !p.markedForDeletion);
 
                 this.floatingMessages.forEach(m => m.update(deltaTime));
