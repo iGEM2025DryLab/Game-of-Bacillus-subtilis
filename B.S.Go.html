@@ -117,23 +117,25 @@
                 this.companions = [];
                 this.enemies = [];
                 this.particles = [];
+                this.items = []; // 新增物品陣列
                 this.floatingMessages = [];
                 this.ui = new UI(this);
                 this.level = 1;
-                this.maxLevels = 4;
                 this.gameOver = false;
                 this.gameWon = false;
                 this.gameState = 'start'; // 'start', 'playing', 'levelComplete', 'gameOver'
 
+                // 更新關卡資料結構
                 this.levelData = [
-                    { enemies: [ { type: 'Yeast', count: 3 } ] },
-                    { enemies: [ { type: 'Yeast', count: 5 } ] },
-                    { enemies: [ { type: 'Anthrax', count: 2 } ] },
-                    { enemies: [ { type: 'Yeast', count: 3 }, { type: 'Anthrax', count: 1 } ] },
-                    { enemies: [ { type: 'Phytophthora', count: 1 } ] },
-                    { enemies: [ { type: 'Yeast', count: 2 }, { type: 'Anthrax', count: 2 }, { type: 'Phytophthora', count: 1 } ] },
-                    { enemies: [ { type: 'MegaBoss', count: 1} ] }
+                    { enemies: [ { type: 'Yeast', total: 8 } ], maxOnScreen: 3 },
+                    { enemies: [ { type: 'Yeast', total: 12 } ], maxOnScreen: 4 },
+                    { enemies: [ { type: 'Anthrax', total: 5 } ], maxOnScreen: 2 },
+                    { enemies: [ { type: 'Yeast', total: 8 }, { type: 'Anthrax', total: 4 } ], maxOnScreen: 4 },
+                    { enemies: [ { type: 'Phytophthora', total: 1 } ], maxOnScreen: 1 },
+                    { enemies: [ { type: 'Yeast', total: 6 }, { type: 'Anthrax', total: 4 }, { type: 'Phytophthora', total: 1 } ], maxOnScreen: 5 },
+                    { enemies: [ { type: 'MegaBoss', total: 1 } ], maxOnScreen: 1 }
                 ];
+                this.enemiesToSpawn = [];
                 
                 this.setupEventListeners();
             }
@@ -162,6 +164,7 @@
                 if (this.gameOver || this.gameWon || this.gameState === 'levelComplete' || this.gameState === 'start') return;
                 
                 if (this.gameState === 'playing') {
+                    this.spawnEnemies(); // 新增敵人生成邏輯
                     this.player.update(this.keys, deltaTime);
                 
                     this.projectiles.forEach(p => p.update(deltaTime));
@@ -175,6 +178,9 @@
                     
                     this.particles.forEach(p => p.update(deltaTime));
                     this.particles = this.particles.filter(p => !p.markedForDeletion);
+                    
+                    this.items.forEach(i => i.update(deltaTime));
+                    this.items = this.items.filter(i => !i.markedForDeletion);
 
                     this.floatingMessages.forEach(m => m.update(deltaTime));
                     this.floatingMessages = this.floatingMessages.filter(m => !m.markedForDeletion);
@@ -199,6 +205,7 @@
                 this.projectiles.forEach(p => p.draw(context));
                 this.enemies.forEach(e => e.draw(context));
                 this.particles.forEach(p => p.draw(context));
+                this.items.forEach(i => i.draw(context));
                 this.ui.draw(context);
                 this.floatingMessages.forEach(m => m.draw(context));
 
@@ -261,11 +268,9 @@
                 context.restore();
             }
 
-            // 碰撞檢測 (已修復)
             checkCollisions() {
-                // 檢查投射物與角色的碰撞
+                // 投射物 vs 角色
                 this.projectiles.forEach(projectile => {
-                    // 玩家的投射物 vs 敵人
                     if (projectile.owner === 'player') {
                         this.enemies.forEach(enemy => {
                             if (!projectile.markedForDeletion && this.isColliding(projectile, enemy)) {
@@ -276,7 +281,6 @@
                             }
                         });
                     } 
-                    // 敵人的投射物 vs 玩家
                     else if (projectile.owner === 'enemy') {
                         if (this.isColliding(this.player, projectile) && !this.player.isStealth) {
                             this.player.takeDamage(projectile.damage);
@@ -285,23 +289,29 @@
                     }
                 });
 
-                // 檢查物理接觸碰撞
-                // 敵人 vs 玩家
+                // 物理接觸
                 this.enemies.forEach(enemy => {
                     if (this.isColliding(this.player, enemy) && !this.player.isStealth) {
-                        this.player.takeDamage(enemy.damage); // 物理接觸傷害
+                        this.player.takeDamage(enemy.damage); 
                     }
                 });
                 
-                // 同伴 vs 敵人
                 this.companions.forEach(companion => {
                     this.enemies.forEach(enemy => {
                         if (this.isColliding(companion, enemy)) {
                            enemy.takeDamage(companion.damage);
-                           companion.markedForDeletion = true; // 同伴撞到敵人後消失
+                           companion.markedForDeletion = true; 
                            this.createHitParticles(companion.x, companion.y, '#00ff88');
                         }
                     });
+                });
+                
+                // 玩家 vs 物品
+                this.items.forEach(item => {
+                    if(this.isColliding(this.player, item)) {
+                        item.applyEffect(this.player);
+                        item.markedForDeletion = true;
+                    }
                 });
             }
             
@@ -312,33 +322,43 @@
                        rect1.y + rect1.height > rect2.y;
             }
 
-            // 關卡邏輯
+            // 關卡與敵人生成邏輯
             loadLevel() {
                 if (this.level > this.levelData.length) {
                     this.gameWon = true;
                     return;
                 }
-
-                const currentLevelData = this.levelData[this.level - 1];
-                currentLevelData.enemies.forEach(enemyInfo => {
-                    for (let i = 0; i < enemyInfo.count; i++) {
-                        const x = this.width + Math.random() * 500;
-                        const y = this.groundHeight - 60 * this.scale;
-                        if (enemyInfo.type === 'Yeast') {
-                            this.enemies.push(new Yeast(this, x, this.groundHeight - 60*this.scale));
-                        } else if (enemyInfo.type === 'Anthrax') {
-                             this.enemies.push(new Anthrax(this, x, this.groundHeight - 40*this.scale));
-                        } else if (enemyInfo.type === 'Phytophthora') {
-                            this.enemies.push(new Phytophthora(this));
-                        } else if (enemyInfo.type === 'MegaBoss') {
-                            this.enemies.push(new MegaBoss(this));
-                        }
+                this.enemiesToSpawn = [];
+                const currentLevel = this.levelData[this.level - 1];
+                currentLevel.enemies.forEach(enemyInfo => {
+                    for(let i = 0; i < enemyInfo.total; i++) {
+                        this.enemiesToSpawn.push(enemyInfo.type);
                     }
                 });
+                 // 洗牌，讓敵人出現順序隨機
+                this.enemiesToSpawn.sort(() => Math.random() - 0.5);
+            }
+            
+            spawnEnemies() {
+                const currentLevel = this.levelData[this.level - 1];
+                if (this.enemies.length < currentLevel.maxOnScreen && this.enemiesToSpawn.length > 0) {
+                    const enemyType = this.enemiesToSpawn.pop();
+                    const x = this.width + Math.random() * 200;
+                    
+                    if (enemyType === 'Yeast') {
+                        this.enemies.push(new Yeast(this, x, this.groundHeight - 60 * this.scale));
+                    } else if (enemyType === 'Anthrax') {
+                         this.enemies.push(new Anthrax(this, x, this.groundHeight - 40 * this.scale));
+                    } else if (enemyType === 'Phytophthora') {
+                        this.enemies.push(new Phytophthora(this));
+                    } else if (enemyType === 'MegaBoss') {
+                        this.enemies.push(new MegaBoss(this));
+                    }
+                }
             }
             
             checkLevelCompletion() {
-                if (this.enemies.length === 0 && this.gameState === 'playing' && !this.gameWon) {
+                if (this.enemies.length === 0 && this.enemiesToSpawn.length === 0 && this.gameState === 'playing' && !this.gameWon) {
                     this.gameState = 'levelComplete';
                     this.level++;
                     setTimeout(() => {
@@ -356,6 +376,7 @@
                 this.companions = [];
                 this.enemies = [];
                 this.particles = [];
+                this.items = [];
                 this.floatingMessages = [];
                 this.level = 1;
                 this.gameOver = false;
@@ -413,7 +434,8 @@
 
                 // Level
                 context.textAlign = 'right';
-                context.fillText(`第 ${this.game.level > this.game.levelData.length ? this.game.levelData.length : this.game.level} 關`, this.game.width - 20 * this.game.scale, 30 * this.game.scale);
+                const enemiesLeft = this.game.enemiesToSpawn.length + this.game.enemies.length;
+                context.fillText(`敵人剩餘: ${enemiesLeft}`, this.game.width - 20 * this.game.scale, 30 * this.game.scale);
                 
                 // Status effects
                 let statusY = 60 * this.game.scale;
@@ -445,7 +467,7 @@
                 this.height = 50 * this.s;
                 this.x = 100 * this.s;
                 this.y = this.game.groundHeight - this.height;
-                this.speed = 0;
+                this.speedX = 0;
                 this.maxSpeed = 5;
                 this.vy = 0;
                 this.weight = 0.5;
@@ -496,17 +518,17 @@
                 if (keys.has('3') && this.skillCooldown.stealth <= 0) this.useStealth();
                 
                 // 水平移動
-                this.speed = 0;
+                this.speedX = 0;
                 const currentMaxSpeed = this.statusEffects.slow.active ? scaledMaxSpeed / 2 : scaledMaxSpeed;
                 if (keys.has('a')) {
-                    this.speed = -currentMaxSpeed;
+                    this.speedX = -currentMaxSpeed;
                     this.direction = 'left';
                 }
                 if (keys.has('d')) {
-                    this.speed = currentMaxSpeed;
+                    this.speedX = currentMaxSpeed;
                     this.direction = 'right';
                 }
-                this.x += this.speed;
+                this.x += this.speedX;
 
                 // 邊界檢測
                 if (this.x < 0) this.x = 0;
@@ -639,14 +661,18 @@
                     this.skillCooldown.heal = this.skillCooldownTime.heal;
                     let healAmount = 0;
                     const healInterval = setInterval(() => {
-                        if (this.health < this.maxHealth) {
-                            this.health += 5;
-                            if(this.health > this.maxHealth) this.health = this.maxHealth;
-                            this.game.floatingMessages.push(new FloatingMessage(this.game, this.x, this.y - 10 * this.s, '+5', '#2ecc71'));
-                        }
+                        this.heal(5);
+                        this.game.floatingMessages.push(new FloatingMessage(this.game, this.x, this.y - 10 * this.s, '+5', '#2ecc71'));
                         healAmount += 5;
                         if(healAmount >= 25 || this.game.gameOver) clearInterval(healInterval);
                     }, 400);
+                }
+            }
+            
+            heal(amount) {
+                this.health += amount;
+                if (this.health > this.maxHealth) {
+                    this.health = this.maxHealth;
                 }
             }
 
@@ -787,29 +813,40 @@
              constructor(game, x, y, width, height, health, damage) {
                 this.game = game;
                 this.s = game.scale;
+                this.baseWidth = width;
+                this.baseHeight = height;
                 this.width = width * this.s;
                 this.height = height * this.s;
                 this.x = x;
                 this.y = y;
                 this.maxHealth = health;
                 this.health = this.maxHealth;
-                this.damage = damage;
-                this.speed = 1 * this.s;
+                this.damage = damage; // 物理接觸傷害
+                this.speedX = 0;
+                this.baseSpeed = 1;
                 this.markedForDeletion = false;
              }
              update(deltaTime) {
                 this.s = this.game.scale;
-                this.width = (this.baseWidth || 50) * this.s;
-                this.height = (this.baseHeight || 50) * this.s;
+                this.width = this.baseWidth * this.s;
+                this.height = this.baseHeight * this.s;
 
-                this.x -= this.speed;
-                if (this.x + this.width < 0) this.markedForDeletion = true;
+                // AI: 追蹤玩家
+                const player = this.game.player;
+                const dx = player.x - this.x;
+                if (dx > 0) {
+                    this.speedX = this.baseSpeed * this.s;
+                } else {
+                    this.speedX = -this.baseSpeed * this.s;
+                }
+
+                this.x += this.speedX;
+                if (this.x + this.width < -100) this.markedForDeletion = true;
              }
              draw(context) {
-                // 繪製敵人主體
                 context.fillStyle = this.color || 'red';
                 context.fillRect(this.x, this.y, this.width, this.height);
-                // 繪製血條
+                
                 if(this.health < this.maxHealth){
                     const healthBarY = this.y - 10 * this.s;
                     context.fillStyle = 'darkred';
@@ -822,18 +859,20 @@
                 this.health -= damage;
                 if (this.health <= 0) {
                     this.markedForDeletion = true;
-                    if(this.game.player.energy < this.game.player.maxEnergy) this.game.player.energy += 20;
+                    if(this.game.player.energy < this.game.player.maxEnergy) this.game.player.energy += 15;
                     if(this.game.player.energy > this.game.player.maxEnergy) this.game.player.energy = this.game.player.maxEnergy;
                     this.game.createHitParticles(this.x + this.width / 2, this.y + this.height / 2, 'red');
+                    // 掉落 Glu
+                    if(Math.random() < 0.3) { // 30% 機率
+                        this.game.items.push(new Glu(this.game, this.x + this.width / 2, this.y + this.height / 2));
+                    }
                 }
              }
         }
         
         class Yeast extends Enemy {
             constructor(game, x, y) {
-                super(game, x, y, 60, 60, 50, 5);
-                this.baseWidth = 60;
-                this.baseHeight = 60;
+                super(game, x, y, 60, 60, 50, 10);
                 this.color = '#ff69b4';
                 this.attackCooldown = Math.random() * 1000;
             }
@@ -856,31 +895,29 @@
         
         class Anthrax extends Enemy {
             constructor(game, x, y) {
-                super(game, x, y, 80, 40, 100, 10);
-                this.baseWidth = 80;
-                this.baseHeight = 40;
+                super(game, x, y, 80, 40, 100, 15);
                 this.color = '#800080';
                 this.isCharging = false;
                 this.chargeCooldown = 3000 + Math.random() * 2000;
+                this.baseSpeed = 0.8;
             }
             update(deltaTime) {
-                super.update(deltaTime);
                 this.chargeCooldown -= deltaTime;
                 if (this.chargeCooldown <= 0 && !this.isCharging) {
                     this.isCharging = true;
-                    this.originalSpeed = this.speed;
-                    this.speed = 8 * this.s;
+                    this.originalSpeed = this.baseSpeed;
+                    this.baseSpeed = 8;
                     setTimeout(() => {
                         this.isCharging = false;
-                        this.speed = this.originalSpeed;
+                        this.baseSpeed = this.originalSpeed;
                         this.chargeCooldown = 3000 + Math.random() * 2000;
                     }, 500);
                 }
+                super.update(deltaTime);
             }
              draw(context) {
                 context.fillStyle = this.isCharging ? '#c0392b' : this.color;
                 context.fillRect(this.x, this.y, this.width, this.height);
-                // 畫莢膜
                 context.strokeStyle = 'rgba(255, 255, 255, 0.5)';
                 context.lineWidth = 3 * this.s;
                 context.strokeRect(this.x - 3*this.s, this.y - 3*this.s, this.width + 6*this.s, this.height + 6*this.s);
@@ -891,21 +928,21 @@
         class Phytophthora extends Enemy {
             constructor(game) {
                 const s = game.scale;
-                super(game, game.width - 200 * s, game.groundHeight - 100 * s, 200, 100, 300, 0);
-                this.baseWidth = 200;
-                this.baseHeight = 100;
+                super(game, game.width - 200 * s, game.groundHeight - 100 * s, 200, 100, 400, 0);
                 this.color = '#8b4513';
                 this.x = this.game.width - this.width;
                 this.y = this.game.groundHeight - this.height;
-                this.speed = 0;
+                this.speedX = 0; // 不移動
                 this.spawnCooldown = 0;
             }
             update(deltaTime) {
-                super.update(deltaTime);
+                this.s = this.game.scale;
+                this.width = this.baseWidth * this.s;
+                this.height = this.baseHeight * this.s;
+
                 if(this.spawnCooldown > 0) this.spawnCooldown -= deltaTime;
                 else {
                     this.spawnCooldown = 4000;
-                    // 生成游動孢子
                     const zoospore = new Projectile(this.game, this.x + this.width / 2, this.y, 10, 'enemy', 'left', null, 2);
                     zoospore.update = function(dt) { // Override update
                         const player = this.game.player;
@@ -930,19 +967,19 @@
 
         class MegaBoss extends Enemy {
             constructor(game) {
-                 const s = game.scale;
-                super(game, game.width - 250 * s, game.groundHeight - 200 * s, 250, 200, 1000, 20);
-                this.baseWidth = 250;
-                this.baseHeight = 200;
+                const s = game.scale;
+                super(game, game.width - 250 * s, game.groundHeight - 200 * s, 250, 200, 1500, 25);
                 this.color = '#581845';
                 this.x = this.game.width - this.width;
                 this.y = this.game.groundHeight - this.height;
-                this.speed = 0;
+                this.speedX = 0;
                 this.phase = 1;
                 this.attackPatternTimer = 0;
             }
             update(deltaTime) {
-                super.update(deltaTime);
+                this.s = this.game.scale;
+                this.width = this.baseWidth * this.s;
+                this.height = this.baseHeight * this.s;
                 this.attackPatternTimer -= deltaTime;
                 if(this.attackPatternTimer <= 0) {
                     this.executeAttackPattern();
@@ -957,21 +994,17 @@
             executeAttackPattern() {
                 const choice = Math.random();
                 if(choice < 0.33) {
-                    // 低溫攻擊
                     this.game.player.applyStatusEffect('slow');
                     this.game.floatingMessages.push(new FloatingMessage(this.game, this.game.player.x, this.game.player.y, '低溫!', 'cyan'));
                 } else if (choice < 0.66) {
-                    // 高溫攻擊
                     this.game.player.applyStatusEffect('burn');
                     this.game.floatingMessages.push(new FloatingMessage(this.game, this.game.player.x, this.game.player.y, '高溫!', 'orange'));
                 } else {
-                    // 抗生素攻擊
                     this.game.player.applyStatusEffect('silence');
                     this.game.floatingMessages.push(new FloatingMessage(this.game, this.game.player.x, this.game.player.y, '抗生素!', 'gray'));
                 }
                 
                 if (this.phase === 2 && Math.random() < 0.5) {
-                    // 召喚小兵
                      this.game.enemies.push(new Yeast(this.game, this.x, this.y + this.height / 2));
                 }
             }
@@ -981,6 +1014,46 @@
                 context.arc(this.x + this.width/2, this.y + this.height/2, this.width/2, 0, Math.PI * 2);
                 context.fill();
                 super.draw(context);
+            }
+        }
+        
+        // 物品類別
+        class Glu {
+            constructor(game, x, y) {
+                this.game = game;
+                this.s = this.game.scale;
+                this.width = 15 * this.s;
+                this.height = 15 * this.s;
+                this.x = x;
+                this.y = y;
+                this.vy = -5 * this.s; // 向上彈出
+                this.weight = 0.3 * this.s;
+                this.markedForDeletion = false;
+                this.healAmount = 10;
+            }
+            update(deltaTime) {
+                this.y += this.vy;
+                if (this.y < this.game.groundHeight - this.height) {
+                     this.vy += this.weight;
+                } else {
+                    this.vy = 0;
+                    this.y = this.game.groundHeight - this.height;
+                }
+            }
+            draw(context) {
+                context.save();
+                context.fillStyle = '#f1c40f';
+                context.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    context.lineTo(this.x + this.width/2 * Math.cos(Math.PI / 3 * i), this.y + this.height/2 * Math.sin(Math.PI / 3 * i));
+                }
+                context.closePath();
+                context.fill();
+                context.restore();
+            }
+            applyEffect(player) {
+                player.heal(this.healAmount);
+                this.game.floatingMessages.push(new FloatingMessage(this.game, player.x, player.y, `+${this.healAmount}`, '#f1c40f'));
             }
         }
 
@@ -1061,6 +1134,7 @@
         window.addEventListener('load', () => {
             resizeCanvas();
             game = new Game(canvas.width, canvas.height, scale);
+            game.loadLevel(); // 初始加載
             animate(0);
         });
 
