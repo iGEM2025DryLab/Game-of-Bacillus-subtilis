@@ -26,6 +26,7 @@
             border: 2px solid rgba(0, 255, 136, 0.7);
             border-radius: 10px;
             overflow: hidden;
+            position: relative;
         }
         canvas {
             display: block;
@@ -93,10 +94,8 @@
             canvas.width = containerWidth;
             canvas.height = containerHeight;
             
-            // 使用較小的一邊來計算縮放比例以保持長寬比
-            scale = Math.min(containerWidth / 1000, containerHeight / 562.5);
+            scale = Math.min(containerWidth / 1200, containerHeight / 675);
             
-            // 確保遊戲內容總是可見的
             if (game) {
                 game.width = canvas.width;
                 game.height = canvas.height;
@@ -104,295 +103,7 @@
             }
         }
         
-        // 遊戲類別
-        class Game {
-            constructor(width, height, scale) {
-                this.width = width;
-                this.height = height;
-                this.scale = scale;
-                this.groundHeight = this.height * 0.9;
-                this.player = new Player(this);
-                this.keys = new Set();
-                this.projectiles = [];
-                this.companions = [];
-                this.enemies = [];
-                this.particles = [];
-                this.items = []; // 新增物品陣列
-                this.floatingMessages = [];
-                this.ui = new UI(this);
-                this.level = 1;
-                this.gameOver = false;
-                this.gameWon = false;
-                this.gameState = 'start'; // 'start', 'playing', 'levelComplete', 'gameOver'
-
-                // 更新關卡資料結構
-                this.levelData = [
-                    { enemies: [ { type: 'Yeast', total: 8 } ], maxOnScreen: 3 },
-                    { enemies: [ { type: 'Yeast', total: 12 } ], maxOnScreen: 4 },
-                    { enemies: [ { type: 'Anthrax', total: 5 } ], maxOnScreen: 2 },
-                    { enemies: [ { type: 'Yeast', total: 8 }, { type: 'Anthrax', total: 4 } ], maxOnScreen: 4 },
-                    { enemies: [ { type: 'Phytophthora', total: 1 } ], maxOnScreen: 1 },
-                    { enemies: [ { type: 'Yeast', total: 6 }, { type: 'Anthrax', total: 4 }, { type: 'Phytophthora', total: 1 } ], maxOnScreen: 5 },
-                    { enemies: [ { type: 'MegaBoss', total: 1 } ], maxOnScreen: 1 }
-                ];
-                this.enemiesToSpawn = [];
-                
-                this.setupEventListeners();
-            }
-
-            // 設置事件監聽器
-            setupEventListeners() {
-                window.addEventListener('keydown', e => {
-                    if (this.gameState === 'start' || this.gameState === 'gameOver' || this.gameWon) {
-                        if (e.key === 'Enter') {
-                            this.restartGame();
-                        }
-                        return;
-                    }
-                    if (['w', 'a', 'd', 'j', 'k', 'l', '1', '2', '3'].includes(e.key.toLowerCase())) {
-                        e.preventDefault();
-                        this.keys.add(e.key.toLowerCase());
-                    }
-                });
-                window.addEventListener('keyup', e => {
-                    this.keys.delete(e.key.toLowerCase());
-                });
-            }
-
-            // 更新遊戲狀態
-            update(deltaTime) {
-                if (this.gameOver || this.gameWon || this.gameState === 'levelComplete' || this.gameState === 'start') return;
-                
-                if (this.gameState === 'playing') {
-                    this.spawnEnemies(); // 新增敵人生成邏輯
-                    this.player.update(this.keys, deltaTime);
-                
-                    this.projectiles.forEach(p => p.update(deltaTime));
-                    this.projectiles = this.projectiles.filter(p => !p.markedForDeletion);
-
-                    this.companions.forEach(c => c.update(deltaTime));
-                    this.companions = this.companions.filter(c => !c.markedForDeletion);
-
-                    this.enemies.forEach(e => e.update(deltaTime));
-                    this.enemies = this.enemies.filter(e => !e.markedForDeletion);
-                    
-                    this.particles.forEach(p => p.update(deltaTime));
-                    this.particles = this.particles.filter(p => !p.markedForDeletion);
-                    
-                    this.items.forEach(i => i.update(deltaTime));
-                    this.items = this.items.filter(i => !i.markedForDeletion);
-
-                    this.floatingMessages.forEach(m => m.update(deltaTime));
-                    this.floatingMessages = this.floatingMessages.filter(m => !m.markedForDeletion);
-                    
-                    this.checkCollisions();
-                    this.checkLevelCompletion();
-                }
-            }
-
-            // 繪製遊戲畫面
-            draw(context) {
-                context.clearRect(0, 0, this.width, this.height);
-                this.drawBackground(context);
-
-                if (this.gameState === 'start') {
-                    this.drawStartScreen(context);
-                    return;
-                }
-                
-                this.player.draw(context);
-                this.companions.forEach(c => c.draw(context));
-                this.projectiles.forEach(p => p.draw(context));
-                this.enemies.forEach(e => e.draw(context));
-                this.particles.forEach(p => p.draw(context));
-                this.items.forEach(i => i.draw(context));
-                this.ui.draw(context);
-                this.floatingMessages.forEach(m => m.draw(context));
-
-                if (this.gameOver) {
-                    this.drawGameOverScreen(context, '遊戲結束');
-                    return;
-                }
-
-                if (this.gameWon) {
-                    this.drawGameOverScreen(context, '恭喜！培養基已淨化！');
-                    return;
-                }
-                
-                if (this.gameState === 'levelComplete') {
-                    this.drawLevelCompleteScreen(context);
-                }
-            }
-            
-            drawBackground(context) {
-                context.fillStyle = '#2c3e50';
-                context.fillRect(0, 0, this.width, this.height);
-                context.fillStyle = '#34495e';
-                context.fillRect(0, this.groundHeight, this.width, this.height - this.groundHeight);
-            }
-
-            drawStartScreen(context) {
-                context.save();
-                context.textAlign = 'center';
-                context.fillStyle = 'white';
-                context.font = `${50 * this.scale}px "Microsoft JhengHei"`;
-                context.fillText('杆菌之刃：孢子求生', this.width / 2, this.height / 2 - 50 * this.scale);
-                context.font = `${20 * this.scale}px "Microsoft JhengHei"`;
-                context.fillText('按 Enter 開始遊戲', this.width / 2, this.height / 2 + 20 * this.scale);
-                context.restore();
-            }
-
-            drawGameOverScreen(context, message) {
-                context.save();
-                context.textAlign = 'center';
-                context.fillStyle = 'rgba(0,0,0,0.5)';
-                context.fillRect(0,0,this.width, this.height);
-                context.fillStyle = 'white';
-                context.font = `${40 * this.scale}px "Microsoft JhengHei"`;
-                context.fillText(message, this.width / 2, this.height / 2 - 40 * this.scale);
-                context.font = `${20 * this.scale}px "Microsoft JhengHei"`;
-                context.fillText('按 Enter 重新開始', this.width / 2, this.height / 2);
-                context.restore();
-            }
-            
-            drawLevelCompleteScreen(context) {
-                context.save();
-                context.textAlign = 'center';
-                context.fillStyle = 'rgba(0,0,0,0.5)';
-                context.fillRect(0,0,this.width, this.height);
-                context.fillStyle = 'white';
-                context.font = `${40 * this.scale}px "Microsoft JhengHei"`;
-                context.fillText(`第 ${this.level - 1} 關完成`, this.width / 2, this.height / 2 - 20 * this.scale);
-                context.font = `${20 * this.scale}px "Microsoft JhengHei"`;
-                context.fillText('準備進入下一關...', this.width / 2, this.height / 2 + 20 * this.scale);
-                context.restore();
-            }
-
-            checkCollisions() {
-                // 投射物 vs 角色
-                this.projectiles.forEach(projectile => {
-                    if (projectile.owner === 'player') {
-                        this.enemies.forEach(enemy => {
-                            if (!projectile.markedForDeletion && this.isColliding(projectile, enemy)) {
-                                enemy.takeDamage(projectile.damage);
-                                projectile.markedForDeletion = true;
-                                this.floatingMessages.push(new FloatingMessage(this, enemy.x + enemy.width / 2, enemy.y, String(projectile.damage), 'white'));
-                                this.createHitParticles(projectile.x, projectile.y);
-                            }
-                        });
-                    } 
-                    else if (projectile.owner === 'enemy') {
-                        if (this.isColliding(this.player, projectile) && !this.player.isStealth) {
-                            this.player.takeDamage(projectile.damage);
-                            projectile.markedForDeletion = true;
-                        }
-                    }
-                });
-
-                // 物理接觸
-                this.enemies.forEach(enemy => {
-                    if (this.isColliding(this.player, enemy) && !this.player.isStealth) {
-                        this.player.takeDamage(enemy.damage); 
-                    }
-                });
-                
-                this.companions.forEach(companion => {
-                    this.enemies.forEach(enemy => {
-                        if (this.isColliding(companion, enemy)) {
-                           enemy.takeDamage(companion.damage);
-                           companion.markedForDeletion = true; 
-                           this.createHitParticles(companion.x, companion.y, '#00ff88');
-                        }
-                    });
-                });
-                
-                // 玩家 vs 物品
-                this.items.forEach(item => {
-                    if(this.isColliding(this.player, item)) {
-                        item.applyEffect(this.player);
-                        item.markedForDeletion = true;
-                    }
-                });
-            }
-            
-            isColliding(rect1, rect2) {
-                return rect1.x < rect2.x + rect2.width &&
-                       rect1.x + rect1.width > rect2.x &&
-                       rect1.y < rect2.y + rect2.height &&
-                       rect1.y + rect1.height > rect2.y;
-            }
-
-            // 關卡與敵人生成邏輯
-            loadLevel() {
-                if (this.level > this.levelData.length) {
-                    this.gameWon = true;
-                    return;
-                }
-                this.enemiesToSpawn = [];
-                const currentLevel = this.levelData[this.level - 1];
-                currentLevel.enemies.forEach(enemyInfo => {
-                    for(let i = 0; i < enemyInfo.total; i++) {
-                        this.enemiesToSpawn.push(enemyInfo.type);
-                    }
-                });
-                 // 洗牌，讓敵人出現順序隨機
-                this.enemiesToSpawn.sort(() => Math.random() - 0.5);
-            }
-            
-            spawnEnemies() {
-                const currentLevel = this.levelData[this.level - 1];
-                if (this.enemies.length < currentLevel.maxOnScreen && this.enemiesToSpawn.length > 0) {
-                    const enemyType = this.enemiesToSpawn.pop();
-                    const x = this.width + Math.random() * 200;
-                    
-                    if (enemyType === 'Yeast') {
-                        this.enemies.push(new Yeast(this, x, this.groundHeight - 60 * this.scale));
-                    } else if (enemyType === 'Anthrax') {
-                         this.enemies.push(new Anthrax(this, x, this.groundHeight - 40 * this.scale));
-                    } else if (enemyType === 'Phytophthora') {
-                        this.enemies.push(new Phytophthora(this));
-                    } else if (enemyType === 'MegaBoss') {
-                        this.enemies.push(new MegaBoss(this));
-                    }
-                }
-            }
-            
-            checkLevelCompletion() {
-                if (this.enemies.length === 0 && this.enemiesToSpawn.length === 0 && this.gameState === 'playing' && !this.gameWon) {
-                    this.gameState = 'levelComplete';
-                    this.level++;
-                    setTimeout(() => {
-                        if(!this.gameWon) {
-                           this.loadLevel();
-                           this.gameState = 'playing';
-                        }
-                    }, 3000);
-                }
-            }
-
-            restartGame() {
-                this.player = new Player(this);
-                this.projectiles = [];
-                this.companions = [];
-                this.enemies = [];
-                this.particles = [];
-                this.items = [];
-                this.floatingMessages = [];
-                this.level = 1;
-                this.gameOver = false;
-                this.gameWon = false;
-                this.gameState = 'playing';
-                this.loadLevel();
-            }
-            
-            createHitParticles(x, y, color = 'white') {
-                for (let i = 0; i < 5; i++) {
-                    this.particles.push(new Particle(this, x, y, color));
-                }
-            }
-        }
-        
-        // UI 類別
+        // --- 資源與元件類別定義 (已重新排序) ---
         class UI {
             constructor(game) {
                 this.game = game;
@@ -457,16 +168,73 @@
                 context.restore();
             }
         }
+
+        class Background {
+            constructor(game) {
+                this.game = game;
+                this.level = game.level;
+            }
+            updateLevel(){
+                this.level = this.game.level;
+            }
+            draw(context) {
+                if (this.level <= 2) {
+                    // 荔枝皮外 - 藍天
+                    context.fillStyle = '#87CEEB';
+                    context.fillRect(0, 0, this.game.worldWidth, this.game.groundLevel);
+                } else {
+                    // 荔枝皮內 - 洞穴
+                    // 根據關卡決定顏色深度
+                    const depth = Math.min((this.level - 3) * 0.1, 0.5);
+                    const baseR = 139, baseG = 69, baseB = 19; // SaddleBrown
+                    const r = baseR * (1 - depth);
+                    const g = baseG * (1 - depth);
+                    const b = baseB * (1 - depth);
+                    context.fillStyle = `rgb(${r},${g},${b})`;
+                    context.fillRect(0, 0, this.game.worldWidth, this.game.height);
+                    
+                    // 畫出洞穴牆壁
+                    const wallColorDarker = `rgb(${r*0.8},${g*0.8},${b*0.8})`;
+                    context.fillStyle = wallColorDarker;
+                    const cavernTopHeight = this.game.height * 0.2 * (1 - Math.min((this.level - 3) * 0.2, 0.8)); // 洞穴逐漸變小
+                    
+                    context.beginPath();
+                    context.moveTo(0, cavernTopHeight);
+                    for (let x = 0; x < this.game.worldWidth; x+=50) {
+                        const randomY = cavernTopHeight + Math.sin(x * 0.01) * 20 * this.game.scale;
+                        context.lineTo(x, randomY);
+                    }
+                    context.lineTo(this.game.worldWidth, 0);
+                    context.lineTo(0,0);
+                    context.closePath();
+                    context.fill();
+                }
+            }
+        }
         
-        // 玩家類別
+        class Platform {
+            constructor(game, x, y, width, height) {
+                this.game = game;
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.color = '#5D4037'; // 平台顏色
+            }
+            draw(context){
+                context.fillStyle = this.color;
+                context.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+        
         class Player {
             constructor(game) {
                 this.game = game;
                 this.s = this.game.scale; 
                 this.width = 50 * this.s;
                 this.height = 50 * this.s;
-                this.x = 100 * this.s;
-                this.y = this.game.groundHeight - this.height;
+                this.x = 200 * this.s;
+                this.y = this.game.height - 200 * this.s;
                 this.speedX = 0;
                 this.maxSpeed = 5;
                 this.vy = 0;
@@ -504,20 +272,16 @@
                 const scaledMaxSpeed = this.maxSpeed * this.s;
                 const scaledWeight = this.weight * this.s;
 
-                // 狀態效果更新
                 this.handleStatusEffects(deltaTime);
 
-                // 攻擊
                 if (keys.has('j') && this.attackCooldown <= 0) this.swordAttack();
                 if (keys.has('k') && this.attackCooldown <= 0) this.bowAttack();
                 if (keys.has('l') && this.attackCooldown <= 0) this.magicAttack();
 
-                // 技能
                 if (keys.has('1') && this.skillCooldown.heal <= 0) this.useHeal();
                 if (keys.has('2') && this.skillCooldown.summon <= 0) this.useSummon();
                 if (keys.has('3') && this.skillCooldown.stealth <= 0) this.useStealth();
                 
-                // 水平移動
                 this.speedX = 0;
                 const currentMaxSpeed = this.statusEffects.slow.active ? scaledMaxSpeed / 2 : scaledMaxSpeed;
                 if (keys.has('a')) {
@@ -530,28 +294,35 @@
                 }
                 this.x += this.speedX;
 
-                // 邊界檢測
+                // 世界邊界檢測
                 if (this.x < 0) this.x = 0;
-                if (this.x > this.game.width - this.width) this.x = this.game.width - this.width;
+                if (this.x > this.game.worldWidth - this.width) this.x = this.game.worldWidth - this.width;
 
-                // 垂直移動
-                if (keys.has('w') && this.onGround()) {
+                // 垂直移動與平台碰撞
+                this.y += this.vy;
+                this.vy += scaledWeight;
+
+                let onAnyPlatform = false;
+                this.game.platforms.forEach(platform => {
+                    if (this.vy > 0 && // 只有下落時才檢測
+                        this.x < platform.x + platform.width &&
+                        this.x + this.width > platform.x &&
+                        this.y + this.height > platform.y &&
+                        this.y + this.height - this.vy < platform.y + 1 // 上一幀在平台之上
+                    ) {
+                        this.y = platform.y - this.height;
+                        this.vy = 0;
+                        onAnyPlatform = true;
+                    }
+                });
+                
+                if (keys.has('w') && onAnyPlatform) {
                     this.vy = -15 * this.s;
                 }
-                this.y += this.vy;
-                if (!this.onGround()) {
-                    this.vy += scaledWeight;
-                } else {
-                    this.vy = 0;
-                    this.y = this.game.groundHeight - this.height;
-                }
                 
-                // 冷卻時間更新
                 if (this.attackCooldown > 0) this.attackCooldown -= deltaTime;
                  for (const skill in this.skillCooldown) {
-                    if (this.skillCooldown[skill] > 0) {
-                        this.skillCooldown[skill] -= deltaTime;
-                    }
+                    if (this.skillCooldown[skill] > 0) this.skillCooldown[skill] -= deltaTime;
                 }
                 if (this.invulnerabilityTimer > 0) {
                     this.invulnerabilityTimer -= deltaTime;
@@ -561,26 +332,18 @@
                     this.stealthTimer -= deltaTime;
                     if (this.stealthTimer <= 0) this.isStealth = false;
                 }
-
-                // 回魔
-                if (this.mana < this.maxMana) {
-                    this.mana += 0.1;
-                }
+                if (this.mana < this.maxMana) this.mana += 0.1;
             }
             draw(context) {
                 context.save();
-                if (this.invulnerable && Math.floor(this.invulnerabilityTimer / 100) % 2 === 0) {
-                   context.globalAlpha = 0.5;
-                }
+                if (this.invulnerable && Math.floor(this.invulnerabilityTimer / 100) % 2 === 0) { context.globalAlpha = 0.5; }
                 if (this.statusEffects.slow.active) {
                     context.fillStyle = 'rgba(0, 191, 255, 0.3)';
                     context.beginPath();
                     context.arc(this.x + this.width / 2, this.y + this.height/2, this.width, 0, Math.PI * 2);
                     context.fill();
                 }
-
                 if(this.isStealth) {
-                    // 畫孢子
                     context.globalAlpha = 0.6;
                     context.fillStyle = '#8a9a5b';
                     context.beginPath();
@@ -589,77 +352,50 @@
                     context.strokeStyle = '#c3d37a';
                     context.stroke();
                 } else {
-                    // 畫枯草芽孢桿菌
                     context.fillStyle = '#00ff88';
                     context.fillRect(this.x, this.y, this.width, this.height);
                     context.strokeStyle = 'white';
                     context.strokeRect(this.x, this.y, this.width, this.height);
-
-
-                    // 畫武器
                     if (this.attackCooldown > 0 && this.lastAttack === 'sword') {
                         context.fillStyle = 'white';
-                        const swordW = 50 * this.s;
-                        const swordH = 10 * this.s;
+                        const swordW = 50 * this.s; const swordH = 10 * this.s;
                         const swordX = this.direction === 'right' ? this.x + this.width : this.x - swordW;
                         context.fillRect(swordX, this.y + this.height * 0.4, swordW, swordH);
                     }
                 }
                 context.restore();
             }
-            onGround() {
-                return this.y >= this.game.groundHeight - this.height;
-            }
-            
-            // 攻擊方法
             swordAttack() {
-                this.attackCooldown = 300;
-                this.lastAttack = 'sword';
-                const attackWidth = 60 * this.s;
-                const attackX = this.direction === 'right' ? this.x + this.width : this.x - attackWidth;
-                const attackY = this.y;
-                const attackHeight = this.height;
-                
+                this.attackCooldown = 300; this.lastAttack = 'sword';
+                const attackWidth = 60 * this.s; const attackX = this.direction === 'right' ? this.x + this.width : this.x - attackWidth;
+                const attackY = this.y; const attackHeight = this.height;
                 this.game.enemies.forEach(enemy => {
-                    const attackRect = { x: attackX, y: attackY, width: attackWidth, height: attackHeight };
-                    if (this.game.isColliding(attackRect, enemy)) {
+                    if (this.game.isColliding({ x: attackX, y: attackY, width: attackWidth, height: attackHeight }, enemy)) {
                         enemy.takeDamage(15);
                         this.game.floatingMessages.push(new FloatingMessage(this.game, enemy.x, enemy.y, '15', 'white'));
                         this.game.createHitParticles(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
-                        if (this.energy < this.maxEnergy) this.energy += 2;
-                        if(this.energy > this.maxEnergy) this.energy = this.maxEnergy;
+                        if (this.energy < this.maxEnergy) this.energy += 2; if(this.energy > this.maxEnergy) this.energy = this.maxEnergy;
                     }
                 });
             }
-
             bowAttack() {
                 if(this.mana >= 10) {
-                    this.mana -= 10;
-                    this.attackCooldown = 500;
-                    this.lastAttack = 'bow';
+                    this.mana -= 10; this.attackCooldown = 500; this.lastAttack = 'bow';
                     const projectileX = this.direction === 'right' ? this.x + this.width : this.x;
                     this.game.projectiles.push(new Projectile(this.game, projectileX, this.y + this.height/2, 10, 'player', this.direction));
                 }
             }
-            
             magicAttack() {
-                 if(this.mana >= 30) {
-                    this.mana -= 30;
-                    this.attackCooldown = 1200;
-                    this.lastAttack = 'magic';
+                if(this.mana >= 30) {
+                    this.mana -= 30; this.attackCooldown = 1200; this.lastAttack = 'magic';
                     for(let i = 0; i < 8; i++){
-                        const angle = (Math.PI * 2 / 8) * i;
-                        this.game.projectiles.push(new Projectile(this.game, this.x + this.width/2, this.y + this.height/2, 20, 'player', null, angle, 5));
+                        this.game.projectiles.push(new Projectile(this.game, this.x + this.width/2, this.y + this.height/2, 20, 'player', null, (Math.PI * 2 / 8) * i, 5));
                     }
-                 }
+                }
             }
-            
-            // 技能方法
             useHeal() {
                 if(this.energy >= 50) {
-                    this.energy -= 50;
-                    this.skillCooldown.heal = this.skillCooldownTime.heal;
-                    let healAmount = 0;
+                    this.energy -= 50; this.skillCooldown.heal = this.skillCooldownTime.heal; let healAmount = 0;
                     const healInterval = setInterval(() => {
                         this.heal(5);
                         this.game.floatingMessages.push(new FloatingMessage(this.game, this.x, this.y - 10 * this.s, '+5', '#2ecc71'));
@@ -668,56 +404,32 @@
                     }, 400);
                 }
             }
-            
-            heal(amount) {
-                this.health += amount;
-                if (this.health > this.maxHealth) {
-                    this.health = this.maxHealth;
-                }
-            }
-
+            heal(amount) { this.health += amount; if (this.health > this.maxHealth) this.health = this.maxHealth; }
             useSummon() {
                 if(this.energy >= 70 && !this.statusEffects.silence.active && this.game.companions.length < 2) {
-                    this.energy -= 70;
-                    this.skillCooldown.summon = this.skillCooldownTime.summon;
+                    this.energy -= 70; this.skillCooldown.summon = this.skillCooldownTime.summon;
                     this.game.companions.push(new Companion(this.game, this.x, this.y));
                 }
             }
-
             useStealth() {
                 if(this.energy >= 40) {
-                    this.energy -= 40;
-                    this.skillCooldown.stealth = this.skillCooldownTime.stealth;
-                    this.isStealth = true;
-                    this.stealthTimer = this.stealthDuration;
+                    this.energy -= 40; this.skillCooldown.stealth = this.skillCooldownTime.stealth;
+                    this.isStealth = true; this.stealthTimer = this.stealthDuration;
                 }
             }
-            
             takeDamage(damage) {
                 if (this.invulnerable || this.isStealth) return;
-                this.health -= damage;
-                this.invulnerable = true;
-                this.invulnerabilityTimer = this.invulnerabilityDuration;
-                if (this.health <= 0) {
-                    this.health = 0;
-                    this.game.gameOver = true;
-                }
+                this.health -= damage; this.invulnerable = true; this.invulnerabilityTimer = this.invulnerabilityDuration;
+                if (this.health <= 0) { this.health = 0; this.game.gameOver = true; }
                 this.game.floatingMessages.push(new FloatingMessage(this.game, this.x, this.y, `-${damage}`, '#e74c3c'));
             }
-            
-            applyStatusEffect(type) {
-                this.statusEffects[type].active = true;
-                this.statusEffects[type].timer = this.statusEffects[type].duration;
-            }
-
+            applyStatusEffect(type) { this.statusEffects[type].active = true; this.statusEffects[type].timer = this.statusEffects[type].duration; }
             handleStatusEffects(deltaTime) {
                 for (const effect in this.statusEffects) {
                     if (this.statusEffects[effect].active) {
                         this.statusEffects[effect].timer -= deltaTime;
-                        if (this.statusEffects[effect].timer <= 0) {
-                            this.statusEffects[effect].active = false;
-                        }
-                        if (effect === 'burn' && Math.floor(this.statusEffects.burn.timer % 1000) < 20) {
+                        if (this.statusEffects[effect].timer <= 0) this.statusEffects[effect].active = false;
+                        if (effect === 'burn' && Math.floor(this.statusEffects[effect].timer % 1000) < 20) {
                              if (this.invulnerable || this.isStealth) return;
                              this.health -= this.statusEffects.burn.damage;
                              this.game.floatingMessages.push(new FloatingMessage(this.game, this.x, this.y, `-${this.statusEffects.burn.damage}`, 'orange'));
@@ -727,7 +439,6 @@
             }
         }
         
-        // 投射物類別
         class Projectile {
             constructor(game, x, y, damage, owner, direction = 'right', angle = null, speed = 10) {
                 this.game = game;
@@ -752,17 +463,11 @@
             update(deltaTime) {
                 this.x += this.vx;
                 this.y += this.vy;
-                if (this.x > this.game.width + this.width || this.x < -this.width) {
-                    this.markedForDeletion = true;
-                }
+                if (this.x > this.game.worldWidth + this.width || this.x < -this.width) this.markedForDeletion = true;
             }
-            draw(context) {
-                context.fillStyle = this.owner === 'player' ? 'cyan' : '#f1c40f';
-                context.fillRect(this.x, this.y, this.width, this.height);
-            }
+            draw(context) { context.fillStyle = this.owner === 'player' ? 'cyan' : '#f1c40f'; context.fillRect(this.x, this.y, this.width, this.height); }
         }
         
-        // 同伴類別
         class Companion {
             constructor(game, x, y) {
                 this.game = game;
@@ -777,40 +482,22 @@
                 this.markedForDeletion = false;
             }
             update(deltaTime) {
-                this.lifespan -= deltaTime;
-                if(this.lifespan <= 0) this.markedForDeletion = true;
-
-                // 簡單的AI：朝最近的敵人移動
-                let closestEnemy = null;
-                let minDistance = Infinity;
+                this.lifespan -= deltaTime; if(this.lifespan <= 0) this.markedForDeletion = true;
+                let closestEnemy = null; let minDistance = Infinity;
                 this.game.enemies.forEach(enemy => {
                     const distance = Math.hypot(this.x - enemy.x, this.y - enemy.y);
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                        closestEnemy = enemy;
-                    }
+                    if (distance < minDistance) { minDistance = distance; closestEnemy = enemy; }
                 });
-
                 if (closestEnemy) {
                     const angle = Math.atan2(closestEnemy.y + closestEnemy.height/2 - (this.y + this.height/2), closestEnemy.x + closestEnemy.width/2 - (this.x + this.width/2));
-                    this.x += Math.cos(angle) * this.speed;
-                    this.y += Math.sin(angle) * this.speed;
-                } else {
-                     this.x += this.speed;
-                }
+                    this.x += Math.cos(angle) * this.speed; this.y += Math.sin(angle) * this.speed;
+                } else { this.x += this.speed; }
             }
-            draw(context) {
-                context.save()
-                context.fillStyle = 'lightgreen';
-                context.globalAlpha = this.lifespan / 5000;
-                context.fillRect(this.x, this.y, this.width, this.height);
-                context.restore()
-            }
+            draw(context) { context.save(); context.fillStyle = 'lightgreen'; context.globalAlpha = this.lifespan / 5000; context.fillRect(this.x, this.y, this.width, this.height); context.restore(); }
         }
 
-        // 敵人基類
         class Enemy {
-             constructor(game, x, y, width, height, health, damage) {
+             constructor(game, x, y, width, height, health, damage, platform) {
                 this.game = game;
                 this.s = game.scale;
                 this.baseWidth = width;
@@ -819,9 +506,10 @@
                 this.height = height * this.s;
                 this.x = x;
                 this.y = y;
+                this.platform = platform;
                 this.maxHealth = health;
                 this.health = this.maxHealth;
-                this.damage = damage; // 物理接觸傷害
+                this.damage = damage; 
                 this.speedX = 0;
                 this.baseSpeed = 1;
                 this.markedForDeletion = false;
@@ -831,48 +519,50 @@
                 this.width = this.baseWidth * this.s;
                 this.height = this.baseHeight * this.s;
 
-                // AI: 追蹤玩家
                 const player = this.game.player;
                 const dx = player.x - this.x;
                 if (dx > 0) {
                     this.speedX = this.baseSpeed * this.s;
-                } else {
+                } else if (dx < 0) {
                     this.speedX = -this.baseSpeed * this.s;
+                } else {
+                    this.speedX = 0;
                 }
-
                 this.x += this.speedX;
-                if (this.x + this.width < -100) this.markedForDeletion = true;
+
+                if(this.platform) {
+                    if(this.x < this.platform.x) {
+                        this.x = this.platform.x;
+                        this.speedX *= -1;
+                    }
+                    if(this.x + this.width > this.platform.x + this.platform.width) {
+                        this.x = this.platform.x + this.platform.width - this.width;
+                        this.speedX *= -1;
+                    }
+                }
              }
              draw(context) {
-                context.fillStyle = this.color || 'red';
-                context.fillRect(this.x, this.y, this.width, this.height);
-                
+                context.fillStyle = this.color || 'red'; context.fillRect(this.x, this.y, this.width, this.height);
                 if(this.health < this.maxHealth){
                     const healthBarY = this.y - 10 * this.s;
-                    context.fillStyle = 'darkred';
-                    context.fillRect(this.x, healthBarY, this.width, 5 * this.s);
-                    context.fillStyle = 'red';
-                    context.fillRect(this.x, healthBarY, this.width * (this.health / this.maxHealth), 5 * this.s);
+                    context.fillStyle = 'darkred'; context.fillRect(this.x, healthBarY, this.width, 5 * this.s);
+                    context.fillStyle = 'red'; context.fillRect(this.x, healthBarY, this.width * (this.health / this.maxHealth), 5 * this.s);
                 }
              }
              takeDamage(damage) {
                 this.health -= damage;
                 if (this.health <= 0) {
                     this.markedForDeletion = true;
-                    if(this.game.player.energy < this.game.player.maxEnergy) this.game.player.energy += 15;
-                    if(this.game.player.energy > this.game.player.maxEnergy) this.game.player.energy = this.game.player.maxEnergy;
+                    if(this.game.player.energy < this.game.player.maxEnergy) this.game.player.energy += 15; if(this.game.player.energy > this.game.player.maxEnergy) this.game.player.energy = this.game.player.maxEnergy;
                     this.game.createHitParticles(this.x + this.width / 2, this.y + this.height / 2, 'red');
-                    // 掉落 Glu
-                    if(Math.random() < 0.3) { // 30% 機率
-                        this.game.items.push(new Glu(this.game, this.x + this.width / 2, this.y + this.height / 2));
-                    }
+                    if(Math.random() < 0.3) { this.game.items.push(new Glu(this.game, this.x + this.width / 2, this.y + this.height / 2)); }
                 }
              }
         }
         
         class Yeast extends Enemy {
-            constructor(game, x, y) {
-                super(game, x, y, 60, 60, 50, 10);
+            constructor(game, x, y, platform) {
+                super(game, x, y, 60, 60, 50, 10, platform);
                 this.color = '#ff69b4';
                 this.attackCooldown = Math.random() * 1000;
             }
@@ -881,21 +571,19 @@
                 if(this.attackCooldown > 0) this.attackCooldown -= deltaTime;
                 else {
                     this.attackCooldown = 2000 + Math.random() * 1000;
-                    this.game.projectiles.push(new Projectile(this.game, this.x, this.y + this.height / 2, 5, 'enemy', 'left'));
+                    const direction = (this.game.player.x < this.x) ? 'left' : 'right';
+                    this.game.projectiles.push(new Projectile(this.game, this.x, this.y + this.height / 2, 5, 'enemy', direction));
                 }
             }
             draw(context){
-                context.fillStyle = this.color;
-                context.beginPath();
-                context.arc(this.x + this.width / 2, this.y + this.height/2, this.width/2, 0, Math.PI * 2);
-                context.fill();
+                context.fillStyle = this.color; context.beginPath(); context.arc(this.x + this.width / 2, this.y + this.height/2, this.width/2, 0, Math.PI * 2); context.fill();
                 super.draw(context);
             }
         }
         
         class Anthrax extends Enemy {
-            constructor(game, x, y) {
-                super(game, x, y, 80, 40, 100, 15);
+             constructor(game, x, y, platform) {
+                super(game, x, y, 80, 40, 100, 20, platform);
                 this.color = '#800080';
                 this.isCharging = false;
                 this.chargeCooldown = 3000 + Math.random() * 2000;
@@ -916,11 +604,8 @@
                 super.update(deltaTime);
             }
              draw(context) {
-                context.fillStyle = this.isCharging ? '#c0392b' : this.color;
-                context.fillRect(this.x, this.y, this.width, this.height);
-                context.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-                context.lineWidth = 3 * this.s;
-                context.strokeRect(this.x - 3*this.s, this.y - 3*this.s, this.width + 6*this.s, this.height + 6*this.s);
+                context.fillStyle = this.isCharging ? '#c0392b' : this.color; context.fillRect(this.x, this.y, this.width, this.height);
+                context.strokeStyle = 'rgba(255, 255, 255, 0.5)'; context.lineWidth = 3 * this.s; context.strokeRect(this.x - 3*this.s, this.y - 3*this.s, this.width + 6*this.s, this.height + 6*this.s);
                 super.draw(context);
              }
         }
@@ -928,96 +613,61 @@
         class Phytophthora extends Enemy {
             constructor(game) {
                 const s = game.scale;
-                super(game, game.width - 200 * s, game.groundHeight - 100 * s, 200, 100, 400, 0);
+                super(game, game.worldWidth - 300 * s, game.groundLevel - 100 * s, 200, 100, 400, 0);
                 this.color = '#8b4513';
-                this.x = this.game.width - this.width;
-                this.y = this.game.groundHeight - this.height;
-                this.speedX = 0; // 不移動
+                this.x = this.game.worldWidth - this.width - 50 * s;
+                this.y = this.game.groundLevel - this.height;
+                this.speedX = 0;
                 this.spawnCooldown = 0;
             }
             update(deltaTime) {
-                this.s = this.game.scale;
-                this.width = this.baseWidth * this.s;
-                this.height = this.baseHeight * this.s;
-
+                this.s = this.game.scale; this.width = this.baseWidth * this.s; this.height = this.baseHeight * this.s;
                 if(this.spawnCooldown > 0) this.spawnCooldown -= deltaTime;
                 else {
                     this.spawnCooldown = 4000;
                     const zoospore = new Projectile(this.game, this.x + this.width / 2, this.y, 10, 'enemy', 'left', null, 2);
-                    zoospore.update = function(dt) { // Override update
-                        const player = this.game.player;
-                        const angle = Math.atan2(player.y - this.y, player.x - this.x);
-                        this.x += Math.cos(angle) * this.speed;
-                        this.y += Math.sin(angle) * this.speed;
-                        if (this.x < -this.width || this.x > this.game.width + this.width) this.markedForDeletion = true;
-                    };
+                    zoospore.update = function(dt) { const player = this.game.player; const angle = Math.atan2(player.y - this.y, player.x - this.x); this.x += Math.cos(angle) * this.speed; this.y += Math.sin(angle) * this.speed; if (this.x < -this.width || this.x > this.game.worldWidth + this.width) this.markedForDeletion = true; };
                     this.game.projectiles.push(zoospore);
                 }
             }
             draw(context) {
-                context.fillStyle = this.color;
-                context.beginPath();
-                context.moveTo(this.x, this.y + this.height);
-                context.quadraticCurveTo(this.x + this.width / 2, this.y - this.height / 2, this.x + this.width, this.y + this.height);
-                context.closePath();
-                context.fill();
+                context.fillStyle = this.color; context.beginPath(); context.moveTo(this.x, this.y + this.height); context.quadraticCurveTo(this.x + this.width / 2, this.y - this.height / 2, this.x + this.width, this.y + this.height); context.closePath(); context.fill();
                 super.draw(context);
             }
         }
-
+        
         class MegaBoss extends Enemy {
             constructor(game) {
                 const s = game.scale;
-                super(game, game.width - 250 * s, game.groundHeight - 200 * s, 250, 200, 1500, 25);
+                super(game, game.worldWidth - 300 * s, game.groundLevel - 200 * s, 250, 200, 1500, 25);
                 this.color = '#581845';
-                this.x = this.game.width - this.width;
-                this.y = this.game.groundHeight - this.height;
+                this.x = this.game.worldWidth - this.width - 50 * s;
+                this.y = this.game.groundLevel - this.height;
                 this.speedX = 0;
                 this.phase = 1;
                 this.attackPatternTimer = 0;
             }
             update(deltaTime) {
-                this.s = this.game.scale;
-                this.width = this.baseWidth * this.s;
-                this.height = this.baseHeight * this.s;
+                this.s = this.game.scale; this.width = this.baseWidth * this.s; this.height = this.baseHeight * this.s;
                 this.attackPatternTimer -= deltaTime;
                 if(this.attackPatternTimer <= 0) {
-                    this.executeAttackPattern();
-                    this.attackPatternTimer = (this.phase === 1 ? 5000 : 3000) + Math.random() * 2000;
+                    this.executeAttackPattern(); this.attackPatternTimer = (this.phase === 1 ? 5000 : 3000) + Math.random() * 2000;
                 }
-                
-                if(this.health < this.maxHealth / 2 && this.phase === 1) {
-                    this.phase = 2;
-                    this.game.floatingMessages.push(new FloatingMessage(this.game, this.x, this.y, "狂暴!", 'red'));
-                }
+                if(this.health < this.maxHealth / 2 && this.phase === 1) { this.phase = 2; this.game.floatingMessages.push(new FloatingMessage(this.game, this.x, this.y, "狂暴!", 'red')); }
             }
             executeAttackPattern() {
                 const choice = Math.random();
-                if(choice < 0.33) {
-                    this.game.player.applyStatusEffect('slow');
-                    this.game.floatingMessages.push(new FloatingMessage(this.game, this.game.player.x, this.game.player.y, '低溫!', 'cyan'));
-                } else if (choice < 0.66) {
-                    this.game.player.applyStatusEffect('burn');
-                    this.game.floatingMessages.push(new FloatingMessage(this.game, this.game.player.x, this.game.player.y, '高溫!', 'orange'));
-                } else {
-                    this.game.player.applyStatusEffect('silence');
-                    this.game.floatingMessages.push(new FloatingMessage(this.game, this.game.player.x, this.game.player.y, '抗生素!', 'gray'));
-                }
-                
-                if (this.phase === 2 && Math.random() < 0.5) {
-                     this.game.enemies.push(new Yeast(this.game, this.x, this.y + this.height / 2));
-                }
+                if(choice < 0.33) { this.game.player.applyStatusEffect('slow'); this.game.floatingMessages.push(new FloatingMessage(this.game, this.game.player.x, this.game.player.y, '低溫!', 'cyan')); }
+                else if (choice < 0.66) { this.game.player.applyStatusEffect('burn'); this.game.floatingMessages.push(new FloatingMessage(this.game, this.game.player.x, this.game.player.y, '高溫!', 'orange')); }
+                else { this.game.player.applyStatusEffect('silence'); this.game.floatingMessages.push(new FloatingMessage(this.game, this.game.player.x, this.game.player.y, '抗生素!', 'gray')); }
+                if (this.phase === 2 && Math.random() < 0.5) { this.game.enemies.push(new Yeast(this.game, this.x, this.y + this.height / 2, this.game.platforms[0])); }
             }
             draw(context) {
-                context.fillStyle = this.phase === 2 ? '#C70039' : this.color;
-                context.beginPath();
-                context.arc(this.x + this.width/2, this.y + this.height/2, this.width/2, 0, Math.PI * 2);
-                context.fill();
+                context.fillStyle = this.phase === 2 ? '#C70039' : this.color; context.beginPath(); context.arc(this.x + this.width/2, this.y + this.height/2, this.width/2, 0, Math.PI * 2); context.fill();
                 super.draw(context);
             }
         }
         
-        // 物品類別
         class Glu {
             constructor(game, x, y) {
                 this.game = game;
@@ -1033,11 +683,11 @@
             }
             update(deltaTime) {
                 this.y += this.vy;
-                if (this.y < this.game.groundHeight - this.height) {
+                if (this.y < this.game.groundLevel - this.height) {
                      this.vy += this.weight;
                 } else {
                     this.vy = 0;
-                    this.y = this.game.groundHeight - this.height;
+                    this.y = this.game.groundLevel - this.height;
                 }
             }
             draw(context) {
@@ -1057,7 +707,6 @@
             }
         }
 
-        // 粒子效果類別
         class Particle {
             constructor(game, x, y, color) {
                 this.game = game;
@@ -1088,7 +737,6 @@
             }
         }
         
-        // 浮動文字類別
         class FloatingMessage {
             constructor(game, x, y, message, color) {
                 this.game = game;
@@ -1115,6 +763,317 @@
                 context.restore();
             }
         }
+
+        // --- 主遊戲類別定義 ---
+        class Game {
+            constructor(width, height, scale) {
+                this.width = width;
+                this.height = height;
+                this.scale = scale;
+                this.worldWidth = 3000 * this.scale;
+                this.groundLevel = this.height * 0.9;
+                
+                this.player = new Player(this);
+                this.keys = new Set();
+                this.projectiles = [];
+                this.companions = [];
+                this.enemies = [];
+                this.particles = [];
+                this.items = [];
+                this.platforms = [];
+                this.floatingMessages = [];
+                this.ui = new UI(this);
+                this.background = new Background(this);
+                
+                this.cameraX = 0;
+                
+                this.level = 1;
+                this.gameOver = false;
+                this.gameWon = false;
+                this.gameState = 'start'; 
+
+                this.levelData = [
+                    { enemies: [ { type: 'Yeast', total: 8 } ], maxOnScreen: 3 },
+                    { enemies: [ { type: 'Yeast', total: 12 } ], maxOnScreen: 4 },
+                    { enemies: [ { type: 'Anthrax', total: 5 } ], maxOnScreen: 2 },
+                    { enemies: [ { type: 'Yeast', total: 8 }, { type: 'Anthrax', total: 4 } ], maxOnScreen: 4 },
+                    { enemies: [ { type: 'Phytophthora', total: 1 } ], maxOnScreen: 1 },
+                    { enemies: [ { type: 'Yeast', total: 6 }, { type: 'Anthrax', total: 4 }, { type: 'Phytophthora', total: 1 } ], maxOnScreen: 5 },
+                    { enemies: [ { type: 'MegaBoss', total: 1 } ], maxOnScreen: 1 }
+                ];
+                this.enemiesToSpawn = [];
+                
+                this.setupEventListeners();
+            }
+
+            setupEventListeners() {
+                window.addEventListener('keydown', e => {
+                    if (this.gameState === 'start' || this.gameState === 'gameOver' || this.gameWon) {
+                        if (e.key === 'Enter') this.restartGame();
+                        return;
+                    }
+                    if (['w', 'a', 'd', 'j', 'k', 'l', '1', '2', '3'].includes(e.key.toLowerCase())) {
+                        e.preventDefault();
+                        this.keys.add(e.key.toLowerCase());
+                    }
+                });
+                window.addEventListener('keyup', e => {
+                    this.keys.delete(e.key.toLowerCase());
+                });
+            }
+
+            update(deltaTime) {
+                if (this.gameState !== 'playing') return;
+                
+                this.spawnEnemies();
+                this.player.update(this.keys, deltaTime);
+                this.updateCamera();
+            
+                this.projectiles.forEach(p => p.update(deltaTime));
+                this.projectiles = this.projectiles.filter(p => !p.markedForDeletion);
+
+                this.companions.forEach(c => c.update(deltaTime));
+                this.companions = this.companions.filter(c => !c.markedForDeletion);
+
+                this.enemies.forEach(e => e.update(deltaTime));
+                this.enemies = this.enemies.filter(e => !e.markedForDeletion);
+                
+                this.particles.forEach(p => p.update(deltaTime));
+                this.particles = this.particles.filter(p => !p.markedForDeletion);
+                
+                this.items.forEach(i => i.update(deltaTime));
+                this.items = this.items.filter(i => !i.markedForDeletion);
+
+                this.floatingMessages.forEach(m => m.update(deltaTime));
+                this.floatingMessages = this.floatingMessages.filter(m => !m.markedForDeletion);
+                
+                this.checkCollisions();
+                this.checkLevelCompletion();
+            }
+
+            draw(context) {
+                context.clearRect(0, 0, this.width, this.height);
+
+                if (this.gameState === 'start') {
+                    this.drawStartScreen(context);
+                    return;
+                }
+                
+                context.save();
+                context.translate(-this.cameraX, 0);
+
+                this.background.draw(context);
+                this.platforms.forEach(p => p.draw(context));
+                this.items.forEach(i => i.draw(context));
+                this.player.draw(context);
+                this.companions.forEach(c => c.draw(context));
+                this.projectiles.forEach(p => p.draw(context));
+                this.enemies.forEach(e => e.draw(context));
+                this.particles.forEach(p => p.draw(context));
+                this.floatingMessages.forEach(m => m.draw(context));
+                
+                context.restore();
+
+                this.ui.draw(context);
+
+                if (this.gameOver) this.drawGameOverScreen(context, '遊戲結束');
+                if (this.gameWon) this.drawGameOverScreen(context, '恭喜！培養基已淨化！');
+                if (this.gameState === 'levelComplete') this.drawLevelCompleteScreen(context);
+            }
+
+            updateCamera() {
+                const targetCameraX = this.player.x - this.width / 2;
+                this.cameraX += (targetCameraX - this.cameraX) * 0.1;
+
+                if (this.cameraX < 0) this.cameraX = 0;
+                if (this.cameraX > this.worldWidth - this.width) this.cameraX = this.worldWidth - this.width;
+            }
+            
+            drawStartScreen(context) {
+                context.save();
+                context.fillStyle = 'black';
+                context.fillRect(0,0,this.width, this.height);
+                context.textAlign = 'center';
+                context.fillStyle = 'white';
+                context.font = `${50 * this.scale}px "Microsoft JhengHei"`;
+                context.fillText('杆菌之刃：孢子求生', this.width / 2, this.height / 2 - 50 * this.scale);
+                context.font = `${20 * this.scale}px "Microsoft JhengHei"`;
+                context.fillText('按 Enter 開始遊戲', this.width / 2, this.height / 2 + 20 * this.scale);
+                context.restore();
+            }
+            drawGameOverScreen(context, message) {
+                context.save();
+                context.textAlign = 'center';
+                context.fillStyle = 'rgba(0,0,0,0.7)';
+                context.fillRect(0,0,this.width, this.height);
+                context.fillStyle = 'white';
+                context.font = `${40 * this.scale}px "Microsoft JhengHei"`;
+                context.fillText(message, this.width / 2, this.height / 2 - 40 * this.scale);
+                context.font = `${20 * this.scale}px "Microsoft JhengHei"`;
+                context.fillText('按 Enter 重新開始', this.width / 2, this.height / 2);
+                context.restore();
+            }
+            drawLevelCompleteScreen(context) {
+                context.save();
+                context.textAlign = 'center';
+                context.fillStyle = 'rgba(0,0,0,0.5)';
+                context.fillRect(0,0,this.width, this.height);
+                context.fillStyle = 'white';
+                context.font = `${40 * this.scale}px "Microsoft JhengHei"`;
+                context.fillText(`第 ${this.level - 1} 關完成`, this.width / 2, this.height / 2 - 20 * this.scale);
+                context.font = `${20 * this.scale}px "Microsoft JhengHei"`;
+                context.fillText('準備進入下一關...', this.width / 2, this.height / 2 + 20 * this.scale);
+                context.restore();
+            }
+
+            checkCollisions() {
+                this.projectiles.forEach(projectile => {
+                    if (projectile.owner === 'player') {
+                        this.enemies.forEach(enemy => {
+                            if (!projectile.markedForDeletion && this.isColliding(projectile, enemy)) {
+                                enemy.takeDamage(projectile.damage);
+                                projectile.markedForDeletion = true;
+                                this.floatingMessages.push(new FloatingMessage(this, enemy.x + enemy.width / 2, enemy.y, String(projectile.damage), 'white'));
+                                this.createHitParticles(projectile.x, projectile.y);
+                            }
+                        });
+                    } 
+                    else if (projectile.owner === 'enemy') {
+                        if (this.isColliding(this.player, projectile) && !this.player.isStealth) {
+                            this.player.takeDamage(projectile.damage);
+                            projectile.markedForDeletion = true;
+                        }
+                    }
+                });
+
+                this.enemies.forEach(enemy => {
+                    if (this.isColliding(this.player, enemy) && !this.player.isStealth) {
+                        this.player.takeDamage(enemy.damage); 
+                    }
+                });
+                
+                this.companions.forEach(companion => {
+                    this.enemies.forEach(enemy => {
+                        if (this.isColliding(companion, enemy)) {
+                           enemy.takeDamage(companion.damage);
+                           companion.markedForDeletion = true; 
+                           this.createHitParticles(companion.x, companion.y, '#00ff88');
+                        }
+                    });
+                });
+                
+                this.items.forEach(item => {
+                    if(this.isColliding(this.player, item)) {
+                        item.applyEffect(this.player);
+                        item.markedForDeletion = true;
+                    }
+                });
+            }
+            
+            isColliding(rect1, rect2) {
+                return rect1.x < rect2.x + rect2.width &&
+                       rect1.x + rect1.width > rect2.x &&
+                       rect1.y < rect2.y + rect2.height &&
+                       rect1.y + rect1.height > rect2.y;
+            }
+
+            generatePlatforms() {
+                this.platforms = [];
+                const ground = new Platform(this, -100, this.groundLevel, this.worldWidth + 200, this.height - this.groundLevel);
+                this.platforms.push(ground);
+
+                if (this.level >= 2) { // 從第二關開始有平台
+                    let platformCount = 5 + this.level;
+                    for (let i = 0; i < platformCount; i++) {
+                        const width = (150 + Math.random() * 150) * this.scale;
+                        const height = 20 * this.scale;
+                        const x = Math.random() * (this.worldWidth - width);
+                        const y = this.height * (0.4 + Math.random() * 0.45);
+                        
+                        let overlapping = false;
+                        for(let j=0; j<this.platforms.length; j++){
+                            if(Math.abs(x - this.platforms[j].x) < width + 50 * this.scale && Math.abs(y-this.platforms[j].y) < height + 50 * this.scale){
+                                overlapping = true;
+                                break;
+                            }
+                        }
+                        if(!overlapping) this.platforms.push(new Platform(this, x, y, width, height));
+                    }
+                }
+            }
+            
+            loadLevel() {
+                if (this.level > this.levelData.length) {
+                    this.gameWon = true;
+                    return;
+                }
+                this.enemiesToSpawn = [];
+                const currentLevel = this.levelData[this.level - 1];
+                currentLevel.enemies.forEach(enemyInfo => {
+                    for(let i = 0; i < enemyInfo.total; i++) {
+                        this.enemiesToSpawn.push(enemyInfo.type);
+                    }
+                });
+                this.enemiesToSpawn.sort(() => Math.random() - 0.5);
+                this.generatePlatforms();
+                this.background.updateLevel();
+            }
+            
+            spawnEnemies() {
+                const currentLevel = this.levelData[this.level - 1];
+                if (this.enemies.length < currentLevel.maxOnScreen && this.enemiesToSpawn.length > 0) {
+                    const enemyType = this.enemiesToSpawn.pop();
+                    
+                    const spawnPlatforms = this.platforms.filter(p => p.y < this.groundLevel);
+                    const spawnPlatform = spawnPlatforms.length > 0 ? spawnPlatforms[Math.floor(Math.random() * spawnPlatforms.length)] : this.platforms[0];
+                    const spawnX = spawnPlatform.x + Math.random() * spawnPlatform.width;
+
+                    if (enemyType === 'Yeast') {
+                        this.enemies.push(new Yeast(this, spawnX, spawnPlatform.y - 60 * this.scale, spawnPlatform));
+                    } else if (enemyType === 'Anthrax') {
+                         this.enemies.push(new Anthrax(this, spawnX, spawnPlatform.y - 40 * this.scale, spawnPlatform));
+                    } else if (enemyType === 'Phytophthora') {
+                        this.enemies.push(new Phytophthora(this));
+                    } else if (enemyType === 'MegaBoss') {
+                        this.enemies.push(new MegaBoss(this));
+                    }
+                }
+            }
+            
+            checkLevelCompletion() {
+                if (this.enemies.length === 0 && this.enemiesToSpawn.length === 0 && this.gameState === 'playing' && !this.gameWon) {
+                    this.gameState = 'levelComplete';
+                    this.level++;
+                    setTimeout(() => {
+                        if(!this.gameWon) {
+                           this.loadLevel();
+                           this.gameState = 'playing';
+                        }
+                    }, 3000);
+                }
+            }
+
+            restartGame() {
+                this.level = 1;
+                this.gameOver = false;
+                this.gameWon = false;
+                this.player = new Player(this);
+                this.projectiles = [];
+                this.companions = [];
+                this.enemies = [];
+                this.particles = [];
+                this.items = [];
+                this.floatingMessages = [];
+                this.gameState = 'playing';
+                this.loadLevel();
+            }
+            
+            createHitParticles(x, y, color = 'white') {
+                for (let i = 0; i < 5; i++) {
+                    this.particles.push(new Particle(this, x, y, color));
+                }
+            }
+        }
         
         // 主遊戲循環
         let game;
@@ -1134,7 +1093,6 @@
         window.addEventListener('load', () => {
             resizeCanvas();
             game = new Game(canvas.width, canvas.height, scale);
-            game.loadLevel(); // 初始加載
             animate(0);
         });
 
