@@ -219,7 +219,7 @@
                 this.isWax = isWax;
                 this.isDamaged = false;
                 if(this.isTemporary){
-                    this.lifespan = 17500; // 17.5 秒
+                    this.lifespan = 17500;
                 }
             }
             update(deltaTime) {
@@ -263,7 +263,7 @@
                 this.maxWidth = 250;
             }
             update(deltaTime) {
-                super.update(deltaTime); // 處理生命週期
+                super.update(deltaTime); 
                 if (this.extendableTimer > 0) {
                     this.extendableTimer -= deltaTime;
                     this.minX = Math.min(this.minX, this.owner.x);
@@ -273,7 +273,6 @@
                         this.x = this.minX;
                         this.width = this.maxX - this.minX;
                     } else {
-                        // 達到最大寬度後停止延伸
                         this.extendableTimer = 0;
                     }
                 }
@@ -408,7 +407,7 @@
             draw(context) {
                 context.save();
                 if (this.invulnerable && Math.floor(this.invulnerabilityTimer / 100) % 2 === 0) { context.globalAlpha = 0.5; }
-                if (this.statusEffects.slow.active || (this.onPlatform && this.currentPlatform.isWax)) {
+                if (this.statusEffects.slow.active || (this.onPlatform && this.currentPlatform && this.currentPlatform.isWax)) {
                     context.fillStyle = 'rgba(240, 230, 140, 0.4)';
                     context.beginPath();
                     context.arc(this.x + this.width/2, this.y + this.height/2, this.width, 0, Math.PI * 2);
@@ -1437,8 +1436,15 @@
             checkLevelCompletion() {
                 if (this.enemies.length === 0 && this.enemiesToSpawn.length === 0 && this.gameState === 'playing' && !this.gameWon) {
                     this.gameState = 'levelComplete';
-                    this.player.heal(this.player.maxHealth * 0.4);
-                    this.floatingMessages.push(new FloatingMessage(this, this.player.x, this.player.y, `關卡恢復! +${Math.round(this.player.maxHealth * 0.4)}HP`, '#2ecc71'));
+                    
+                    const oldHpPercent = this.player.health / this.player.maxHealth;
+                    this.player.maxHealth += 20;
+                    this.player.health = this.player.maxHealth * oldHpPercent;
+                    const healAmount = this.player.maxHealth * 0.4;
+                    this.player.heal(healAmount);
+                    
+                    this.floatingMessages.push(new FloatingMessage(this, this.player.x, this.player.y, `最大HP+20!`, '#2ecc71'));
+                    this.floatingMessages.push(new FloatingMessage(this, this.player.x, this.player.y - 25, `恢復 +${Math.round(healAmount)}HP`, '#2ecc71'));
                     
                     this.level++;
                     setTimeout(() => {
