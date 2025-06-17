@@ -395,7 +395,7 @@
                 const attackY = this.y; const attackHeight = this.height;
                 this.game.enemies.forEach(enemy => {
                     if (this.game.isColliding({ x: attackX, y: attackY, width: attackWidth, height: attackHeight }, enemy)) {
-                        enemy.takeDamage(15);
+                        enemy.takeDamage(15, 'melee');
                         this.game.floatingMessages.push(new FloatingMessage(this.game, enemy.x, enemy.y, '15', 'white'));
                         this.game.createHitParticles(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
                         if (this.energy < this.maxEnergy) this.energy += 2; if(this.energy > this.maxEnergy) this.energy = this.maxEnergy;
@@ -408,7 +408,7 @@
                     this.cooldowns.bow = 100;
                     this.lastAttack = 'bow';
                     const projectileX = this.direction === 'right' ? this.x + this.width : this.x;
-                    this.game.projectiles.push(new Projectile(this.game, projectileX, this.y + this.height/2, 10, 'player', this.direction));
+                    this.game.projectiles.push(new Projectile(this.game, projectileX, this.y + this.height/2, 10, 'player', this.direction, null, 10, 'bow'));
                 }
             }
             magicAttack() {
@@ -417,7 +417,7 @@
                     this.cooldowns.magic = 1200; 
                     this.lastAttack = 'magic';
                     for(let i = 0; i < 8; i++){
-                        this.game.projectiles.push(new Projectile(this.game, this.x + this.width/2, this.y + this.height/2, 20, 'player', null, (Math.PI * 2 / 8) * i, 5));
+                        this.game.projectiles.push(new Projectile(this.game, this.x + this.width/2, this.y + this.height/2, 20, 'player', null, (Math.PI * 2 / 8) * i, 5, 'magic'));
                     }
                 }
             }
@@ -472,7 +472,7 @@
         }
         
         class Projectile {
-            constructor(game, x, y, damage, owner, direction = 'right', angle = null, speed = 10) {
+            constructor(game, x, y, damage, owner, direction = 'right', angle = null, speed = 10, type = 'generic') {
                 this.game = game;
                 this.width = 10;
                 this.height = 10;
@@ -481,6 +481,7 @@
                 this.damage = damage;
                 this.owner = owner; 
                 this.speed = speed;
+                this.attackType = type;
                 this.markedForDeletion = false;
 
                 if(angle !== null) {
@@ -524,7 +525,7 @@
                     const companionDamage = magicDamage * 0.8;
                     for(let i = 0; i < 8; i++){
                         const angle = (Math.PI * 2 / 8) * i;
-                        this.game.projectiles.push(new Projectile(this.game, this.x + this.width/2, this.y + this.height/2, companionDamage, 'player', null, angle, 5));
+                        this.game.projectiles.push(new Projectile(this.game, this.x + this.width/2, this.y + this.height/2, companionDamage, 'player', null, angle, 5, 'magic'));
                     }
                 }
                 
@@ -593,7 +594,7 @@
                     context.fillStyle = 'red'; context.fillRect(this.x, healthBarY, this.width * (this.health / this.maxHealth), 5);
                 }
              }
-             takeDamage(damage) {
+             takeDamage(damage, type = 'generic') {
                 this.health -= damage;
                 if (this.health <= 0) {
                     this.markedForDeletion = true;
@@ -664,10 +665,9 @@
              constructor(game, x, y, platform) {
                 super(game, x, y, 80, 40, 100, 20, platform);
                 this.color = '#800080';
-                this.chargeCooldown = 8000 + Math.random() * 2000;
                 this.isCharging = false;
                 this.chargeTimer = 0;
-                this.chargeDuration = 5000;
+                this.chargeDuration = 3000; // *** 修正: 蓄力時間縮短 ***
              }
              update(deltaTime) {
                 if (this.y > this.game.height * 2) {
@@ -681,17 +681,13 @@
                         this.detonate();
                     }
                 } else {
-                    this.chargeCooldown -= deltaTime;
-                    if(this.chargeCooldown <= 0) {
-                        this.isCharging = true;
-                        this.chargeTimer = this.chargeDuration;
-                    }
-                    super.update(deltaTime);
+                   super.update(deltaTime);
+                   this.isCharging = true;
+                   this.chargeTimer = this.chargeDuration;
                 }
              }
              detonate() {
                  this.isCharging = false;
-                 this.chargeCooldown = 8000 + Math.random() * 2000;
                  this.game.camera.shakeDuration = 500;
                  this.game.camera.shakeMagnitude = 10;
 
@@ -718,8 +714,27 @@
                 context.fillStyle = drawColor;
                 context.fillRect(this.x, this.y, this.width, this.height);
                 context.strokeStyle = 'rgba(255, 255, 255, 0.5)'; context.lineWidth = 3; context.strokeRect(this.x - 3, this.y - 3, this.width + 6, this.height + 6);
+
+                // *** 修正: 畫尖刺 ***
+                context.fillStyle = 'white';
+                for(let i = 0; i < 5; i++) {
+                    const spikeX = this.x + (i * this.width / 4);
+                    const spikeY = this.y - 5;
+                    context.beginPath();
+                    context.moveTo(spikeX - 4, this.y);
+                    context.lineTo(spikeX, spikeY);
+                    context.lineTo(spikeX + 4, this.y);
+                    context.closePath();
+                    context.fill();
+                }
                 
                 this.drawHealthBar(context);
+             }
+             takeDamage(damage, type = 'generic') {
+                 if (type === 'bow' || type === 'magic' || type === 'collision') {
+                     return;
+                 }
+                 super.takeDamage(damage, type);
              }
         }
 
@@ -749,11 +764,11 @@
         
         class MegaBoss extends Enemy {
             constructor(game) {
-                super(game, game.worldWidth - 300, game.height * 0.9 - 200, 250, 200, 1500, 25);
+                super(game, game.worldWidth - 300, game.height * 0.9 - 200, 250, 200, 1500, 25, game.platforms[0]);
                 this.color = '#581845';
+                this.baseSpeed = 0.2;
                 this.x = this.game.worldWidth - this.width - 50;
                 this.y = this.game.height * 0.9 - this.height;
-                this.speedX = 0;
                 this.phase = 1;
                 this.attackPatternTimer = 8000;
                 this.isWarning = false;
@@ -762,7 +777,7 @@
                 this.warningDuration = 5000;
             }
             update(deltaTime) {
-                if(this.isWarning) {
+                 if(this.isWarning) {
                     this.warningTimer -= deltaTime;
                     if(this.warningTimer <= 0) {
                         this.isWarning = false;
@@ -774,6 +789,7 @@
                     if(this.attackPatternTimer <= 0) {
                         this.executeAttackPattern();
                     }
+                    super.update(deltaTime);
                 }
 
                 if(this.health < this.maxHealth / 2 && this.phase === 1) { this.phase = 2; this.game.floatingMessages.push(new FloatingMessage(this.game, this.x, this.y, "狂暴!", 'red')); }
@@ -963,7 +979,7 @@
                 this.enemies = [];
                 this.particles = [];
                 this.items = [];
-                this.effects = []; // 用於衝擊波等效果
+                this.effects = [];
                 this.floatingMessages = [];
                 this.ui = new UI(this);
                 
@@ -1003,7 +1019,7 @@
                     if (this.gameState === 'start') {
                          if (key === 'enter') {
                              this.gameState = 'playing';
-                             this.introFadeTimer = 1000; // 開始1秒的淡入
+                             this.introFadeTimer = 1000; 
                          }
                          return;
                     }
@@ -1031,7 +1047,7 @@
                 
                 this.spawnEnemies();
                 this.player.update(this.keys, deltaTime);
-            
+                
                 this.projectiles.forEach(p => p.update(deltaTime));
                 this.projectiles = this.projectiles.filter(p => !p.markedForDeletion);
 
@@ -1207,7 +1223,7 @@
                     if (projectile.owner === 'player' && !projectile.markedForDeletion) {
                         this.enemies.forEach(enemy => {
                             if (this.isColliding(projectile, enemy)) {
-                                enemy.takeDamage(projectile.damage);
+                                enemy.takeDamage(projectile.damage, projectile.attackType);
                                 projectile.markedForDeletion = true;
                                 this.floatingMessages.push(new FloatingMessage(this, enemy.x + enemy.width / 2, enemy.y, String(projectile.damage), 'white'));
                                 this.createHitParticles(projectile.x, projectile.y);
@@ -1225,14 +1241,14 @@
                 this.enemies.forEach(enemy => {
                     if (this.isColliding(this.player, enemy) && !this.player.isStealth) {
                         this.player.takeDamage(enemy.damage); 
-                        enemy.takeDamage(enemy.damage); 
+                        enemy.takeDamage(enemy.damage, 'collision'); 
                     }
                 });
                 
                 this.companions.forEach(companion => {
                     this.enemies.forEach(enemy => {
                         if (this.isColliding(companion, enemy)) {
-                           enemy.takeDamage(companion.damage);
+                           enemy.takeDamage(companion.damage, 'companion');
                            companion.markedForDeletion = true; 
                            this.createHitParticles(companion.x, companion.y, '#00ff88');
                         }
