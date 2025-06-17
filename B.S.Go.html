@@ -235,6 +235,7 @@
                 this.vy = 0;
                 this.weight = 0.5;
                 this.onPlatform = false;
+                this.currentPlatform = null;
                 
                 this.maxHealth = 100;
                 this.health = this.maxHealth;
@@ -296,13 +297,19 @@
                     this.x = this.game.worldWidth - this.width;
                 }
 
+                if (keys.has('s') && this.onPlatform && this.currentPlatform && this.currentPlatform.y < this.game.height * 0.9) {
+                     this.y += 2; // Nudge down to fall through
+                }
+
                 this.y += this.vy;
                 this.vy += this.weight;
 
                 this.onPlatform = false;
                 this.game.platforms.forEach(platform => {
-                    const isDropping = keys.has('s') && this.y + this.height < platform.y + platform.height;
-                    if (this.vy > 0 && !isDropping &&
+                    const isDropping = keys.has('s');
+                    
+                    if (this.vy > 0 &&
+                        (!isDropping || platform.y >= this.game.height * 0.9) && // Prevent dropping through ground
                         this.x + this.width > platform.x &&
                         this.x < platform.x + platform.width &&
                         this.y + this.height >= platform.y &&
@@ -311,6 +318,16 @@
                         this.y = platform.y - this.height;
                         this.vy = 0;
                         this.onPlatform = true;
+                        this.currentPlatform = platform;
+                    } 
+                    else if (this.vy < 0 && 
+                        this.x + this.width > platform.x &&
+                        this.x < platform.x + platform.width &&
+                        this.y >= platform.y + platform.height &&
+                        this.y + this.vy < platform.y + platform.height
+                    ) {
+                         this.vy = 0;
+                         this.y = platform.y + platform.height;
                     }
                 });
                 
@@ -490,6 +507,8 @@
                     const angle = Math.atan2(closestEnemy.y + closestEnemy.height/2 - (this.y + this.height/2), closestEnemy.x + closestEnemy.width/2 - (this.x + this.width/2));
                     this.x += Math.cos(angle) * this.speed; this.y += Math.sin(angle) * this.speed;
                 } else { this.x += this.speed; }
+
+                if (this.y > this.game.height * 2) this.markedForDeletion = true;
             }
             draw(context) { context.save(); context.fillStyle = 'lightgreen'; context.globalAlpha = this.lifespan / 5000; context.fillRect(this.x, this.y, this.width, this.height); context.restore(); }
         }
@@ -510,6 +529,11 @@
                 this.markedForDeletion = false;
              }
              update(deltaTime) {
+                if (this.y > this.game.height * 2) {
+                    this.markedForDeletion = true;
+                    return;
+                }
+
                 const player = this.game.player;
                 const dx = player.x - this.x;
                 if (dx > 0) {
@@ -558,31 +582,47 @@
                 this.edgeTimer = 0;
             }
             update(deltaTime) {
-                const atLeftEdge = this.x <= this.platform.x;
-                const atRightEdge = this.x + this.width >= this.platform.x + this.platform.width;
-                
-                if (this.platform && (atLeftEdge || atRightEdge)) {
-                    this.atEdge = true;
-                } else {
-                    this.atEdge = false;
-                    this.edgeTimer = 0;
+                if (this.y > this.game.height * 2) {
+                    this.markedForDeletion = true;
+                    return;
                 }
-
-                if (this.atEdge) {
-                    this.edgeTimer += deltaTime;
-                    this.speedX = 0; // 停在邊緣
-                    if (this.edgeTimer > 3000) {
-                         if(this.attackCooldown <= 0) {
-                             this.attackCooldown = 2000;
-                             const player = this.game.player;
-                             const angle = Math.atan2((player.y + player.height/2) - (this.y + this.height/2), (player.x + player.width/2) - (this.x + this.width/2));
-                             this.game.projectiles.push(new Projectile(this.game, this.x, this.y + this.height/2, 8, 'enemy', null, angle, 4));
-                         }
+                
+                if (this.game.level === 1) {
+                    // 第一關：看見就打
+                    super.update(deltaTime);
+                    const playerOnScreen = Math.abs(this.game.player.x - this.x) < this.game.width / this.game.scale;
+                    if(playerOnScreen && this.attackCooldown <= 0) {
+                        this.attackCooldown = 3000 + Math.random() * 2000;
+                        const direction = (this.game.player.x < this.x) ? 'left' : 'right';
+                        this.game.projectiles.push(new Projectile(this.game, this.x, this.y + this.height / 2, 5, 'enemy', direction));
                     }
                 } else {
-                    super.update(deltaTime); // 不在邊緣時正常追擊
-                }
+                    // 其他關卡：邊緣才打
+                    const nextX = this.x + this.speedX;
+                    const atLeftEdge = this.platform && nextX <= this.platform.x;
+                    const atRightEdge = this.platform && nextX + this.width >= this.platform.x + this.platform.width;
 
+                    if (this.platform && (atLeftEdge || atRightEdge)) {
+                        this.atEdge = true;
+                    } else {
+                        this.atEdge = false;
+                        this.edgeTimer = 0;
+                        super.update(deltaTime); 
+                    }
+
+                    if (this.atEdge) {
+                        this.edgeTimer += deltaTime;
+                        if (this.edgeTimer > 3000) {
+                            if(this.attackCooldown <= 0) {
+                                this.attackCooldown = 2000;
+                                const player = this.game.player;
+                                const angle = Math.atan2((player.y + player.height/2) - (this.y + this.height/2), (player.x + player.width/2) - (this.x + this.width/2));
+                                this.game.projectiles.push(new Projectile(this.game, this.x + this.width / 2, this.y + this.height/2, 8, 'enemy', null, angle, 4));
+                            }
+                        }
+                    }
+                }
+                
                 if(this.attackCooldown > 0) this.attackCooldown -= deltaTime;
             }
             draw(context){
@@ -601,6 +641,10 @@
                 this.chargeDuration = 5000;
              }
              update(deltaTime) {
+                if (this.y > this.game.height * 2) {
+                    this.markedForDeletion = true;
+                    return;
+                }
                 if (this.isCharging) {
                     this.chargeTimer -= deltaTime;
                     this.speedX = 0;
@@ -619,19 +663,17 @@
              detonate() {
                  this.isCharging = false;
                  this.chargeCooldown = 8000 + Math.random() * 2000;
-                 // 震動效果
                  this.game.camera.shakeDuration = 500;
                  this.game.camera.shakeMagnitude = 10;
-                 // 傷害玩家
                  const player = this.game.player;
-                 if (player.onPlatform && player.y + player.height > this.platform.y && player.y < this.platform.y + this.platform.height) {
+                 if (player.onPlatform && this.platform && player.y + player.height > this.platform.y && player.y < this.platform.y + this.platform.height) {
                      player.takeDamage(30);
                  }
              }
              draw(context) {
                 if (this.isCharging) {
                     const ratio = 1 - (this.chargeTimer / this.chargeDuration);
-                    const flashSpeed = 10 + ratio * 40; // 頻率加快
+                    const flashSpeed = 10 + ratio * 40; 
                     const flash = Math.floor(this.chargeTimer / (1000 / flashSpeed)) % 2 === 0;
                     context.fillStyle = flash ? '#ff0000' : this.color;
                 } else {
@@ -825,6 +867,7 @@
                 this.gameOver = false;
                 this.gameWon = false;
                 this.gameState = 'start'; 
+                this.introFadeTimer = 0;
 
                 this.levelData = [
                     { enemies: [ { type: 'Yeast', total: 8 } ], maxOnScreen: 3 },
@@ -846,7 +889,10 @@
                 window.addEventListener('keydown', e => {
                     const key = e.key.toLowerCase();
                     if (this.gameState === 'start') {
-                         if (key === 'enter') this.gameState = 'playing';
+                         if (key === 'enter') {
+                             this.gameState = 'playing';
+                             this.introFadeTimer = 1000; // 開始1秒的淡入
+                         }
                          return;
                     }
                     if (this.gameState === 'gameOver' || this.gameWon) {
@@ -864,7 +910,13 @@
             }
 
             update(deltaTime) {
-                if (this.gameState !== 'playing') return;
+                if(this.introFadeTimer > 0) this.introFadeTimer -= deltaTime;
+
+                if (this.gameState !== 'playing') {
+                    // 即使不在遊玩狀態，也要讓角色下落
+                    this.player.update(new Set(), deltaTime);
+                    return;
+                }
                 
                 this.spawnEnemies();
                 this.player.update(this.keys, deltaTime);
@@ -892,7 +944,7 @@
                 this.checkLevelCompletion();
             }
 
-            draw(context, deltaTime) { // *** 修正: 傳入 deltaTime ***
+            draw(context, deltaTime) {
                 context.clearRect(0, 0, this.width, this.height);
                 
                 context.save();
@@ -916,8 +968,13 @@
 
                 if (this.gameState === 'start') {
                     this.drawStartScreen(context);
-                    return;
+                } else if(this.introFadeTimer > 0) {
+                    context.save();
+                    context.fillStyle = `rgba(0,0,0,${this.introFadeTimer / 1000})`;
+                    context.fillRect(0,0,this.width, this.height);
+                    context.restore();
                 }
+
                 if (this.gameOver) this.drawGameOverScreen(context, '遊戲結束');
                 if (this.gameWon) this.drawGameOverScreen(context, '恭喜！培養基已淨化！');
                 if (this.gameState === 'levelComplete') this.drawLevelCompleteScreen(context);
@@ -946,14 +1003,23 @@
             
             drawStartScreen(context) {
                 context.save();
-                context.fillStyle = 'rgba(0,0,0,0.7)';
+                context.fillStyle = 'black';
                 context.fillRect(0,0,this.width, this.height);
                 context.textAlign = 'center';
                 context.fillStyle = 'white';
                 context.font = `${50 * this.scale}px "Microsoft JhengHei"`;
-                context.fillText('杆菌之刃：孢子求生', this.width / 2, this.height / 2 - 50 * this.scale);
+                context.fillText('杆菌之刃：孢子求生', this.width / 2, this.height * 0.4);
+
+                context.save();
+                const tempPlayerX = this.width / 2;
+                const tempPlayerY = this.height * 0.5;
+                context.translate(tempPlayerX, tempPlayerY);
+                context.scale(this.scale, this.scale);
+                this.player.draw(context);
+                context.restore();
+                
                 context.font = `${20 * this.scale}px "Microsoft JhengHei"`;
-                context.fillText('按 Enter 開始遊戲', this.width / 2, this.height / 2 + 20 * this.scale);
+                context.fillText('按 Enter 開始遊戲', this.width / 2, this.height * 0.7);
                 context.restore();
             }
             drawGameOverScreen(context, message) {
@@ -1172,10 +1238,8 @@
             const deltaTime = (timestamp - lastTime) || 0;
             lastTime = timestamp;
             if (game) {
-                if(game.gameState === 'playing') {
-                    game.update(deltaTime);
-                }
-                game.draw(ctx, deltaTime); // *** 修正: 將 deltaTime 傳入 draw ***
+                game.update(deltaTime);
+                game.draw(ctx, deltaTime);
             }
             requestAnimationFrame(animate);
         }
