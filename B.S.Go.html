@@ -270,7 +270,7 @@
                             if (this.isColliding(projectile, enemy)) {
                                 enemy.takeDamage(projectile.damage);
                                 projectile.markedForDeletion = true;
-                                this.floatingMessages.push(new FloatingMessage(this.game, enemy.x, enemy.y, projectile.damage, 'white'));
+                                this.floatingMessages.push(new FloatingMessage(this, enemy.x, enemy.y, String(projectile.damage), 'white'));
                                 this.createHitParticles(projectile.x, projectile.y);
                             }
                         });
