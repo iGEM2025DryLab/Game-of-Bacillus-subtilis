@@ -261,42 +261,42 @@
                 context.restore();
             }
 
-            // 碰撞檢測
+            // 碰撞檢測 (已修復)
             checkCollisions() {
-                // 玩家的投射物 vs 敵人
+                // 檢查投射物與角色的碰撞
                 this.projectiles.forEach(projectile => {
+                    // 玩家的投射物 vs 敵人
                     if (projectile.owner === 'player') {
                         this.enemies.forEach(enemy => {
-                            if (this.isColliding(projectile, enemy)) {
+                            if (!projectile.markedForDeletion && this.isColliding(projectile, enemy)) {
                                 enemy.takeDamage(projectile.damage);
                                 projectile.markedForDeletion = true;
-                                this.floatingMessages.push(new FloatingMessage(this, enemy.x, enemy.y, String(projectile.damage), 'white'));
+                                this.floatingMessages.push(new FloatingMessage(this, enemy.x + enemy.width / 2, enemy.y, String(projectile.damage), 'white'));
                                 this.createHitParticles(projectile.x, projectile.y);
                             }
                         });
+                    } 
+                    // 敵人的投射物 vs 玩家
+                    else if (projectile.owner === 'enemy') {
+                        if (this.isColliding(this.player, projectile) && !this.player.isStealth) {
+                            this.player.takeDamage(projectile.damage);
+                            projectile.markedForDeletion = true;
+                        }
                     }
                 });
 
+                // 檢查物理接觸碰撞
                 // 敵人 vs 玩家
                 this.enemies.forEach(enemy => {
                     if (this.isColliding(this.player, enemy) && !this.player.isStealth) {
-                        this.player.takeDamage(enemy.damage);
-                    }
-                     // 敵人的投射物 vs 玩家
-                    if (enemy.projectiles) {
-                        enemy.projectiles.forEach(projectile => {
-                            if (this.isColliding(this.player, projectile) && !this.player.isStealth) {
-                                this.player.takeDamage(projectile.damage);
-                                projectile.markedForDeletion = true;
-                            }
-                        });
+                        this.player.takeDamage(enemy.damage); // 物理接觸傷害
                     }
                 });
                 
                 // 同伴 vs 敵人
                 this.companions.forEach(companion => {
                     this.enemies.forEach(enemy => {
-                        if(this.isColliding(companion, enemy)) {
+                        if (this.isColliding(companion, enemy)) {
                            enemy.takeDamage(companion.damage);
                            companion.markedForDeletion = true; // 同伴撞到敵人後消失
                            this.createHitParticles(companion.x, companion.y, '#00ff88');
