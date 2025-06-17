@@ -76,7 +76,7 @@
             近戰: <span>J</span> | 
             遠程: <span>K</span> | 
             法術: <span>L</span> | 
-            技能: <span>1</span> 回血 <span>2</span> 召喚 <span>3</span> 隱身
+            技能: <span>1</span> 回血 <span>2</span> 召喚 <span>3</span> 隱身 <span>4</span> 蠟質
         </p>
     </div>
 
@@ -209,30 +209,37 @@
         }
         
         class Platform {
-            constructor(game, x, y, width, height) {
+            constructor(game, x, y, width, height, isTemporary = false) {
                 this.game = game;
                 this.x = x;
                 this.y = y;
                 this.width = width;
                 this.height = height;
-                this.color = '#5D4037';
-                this.isDamaged = false;
+                this.isTemporary = isTemporary;
+                this.isWax = false; // 用於區分蠟質平台
+                if(this.isTemporary){
+                    this.lifespan = 10000; // 10 秒
+                }
+            }
+            update(deltaTime) {
+                if(this.isTemporary){
+                    this.lifespan -= deltaTime;
+                    if(this.lifespan <= 0) this.markedForDeletion = true;
+                }
             }
             draw(context){
-                context.fillStyle = this.color;
-                if (this.isDamaged) {
+                context.fillStyle = this.isWax ? 'rgba(240, 230, 140, 0.7)' : '#5D4037';
+                context.fillRect(this.x, this.y, this.width, this.height);
+                 if (this.isDamaged) {
                     const jagAmount = 5;
+                    context.strokeStyle = 'rgba(0,0,0,0.5)';
+                    context.lineWidth = 2;
                     context.beginPath();
                     context.moveTo(this.x, this.y);
                     for(let i = this.x; i < this.x + this.width; i+= 15) {
                         context.lineTo(i + 15, this.y + (Math.random() - 0.5) * jagAmount);
                     }
-                    context.lineTo(this.x + this.width, this.y + this.height);
-                    context.lineTo(this.x, this.y + this.height);
-                    context.closePath();
-                    context.fill();
-                } else {
-                    context.fillRect(this.x, this.y, this.width, this.height);
+                    context.stroke();
                 }
             }
         }
@@ -260,8 +267,8 @@
 
                 this.direction = 'right';
                 this.cooldowns = { sword: 0, bow: 0, magic: 0 };
-                this.skillCooldown = { heal: 0, summon: 0, stealth: 0 };
-                this.skillCooldownTime = { heal: 15000, summon: 5000, stealth: 5000 };
+                this.skillCooldown = { heal: 0, summon: 0, stealth: 0, wax: 0 };
+                this.skillCooldownTime = { heal: 15000, summon: 5000, stealth: 5000, wax: 8000 };
                 this.invulnerable = false;
                 this.invulnerabilityDuration = 1000;
                 this.invulnerabilityTimer = 0;
@@ -293,9 +300,13 @@
                 if (keys.has('1') && this.skillCooldown.heal <= 0) this.useHeal();
                 if (keys.has('2') && this.skillCooldown.summon <= 0) this.useSummon();
                 if (keys.has('3') && this.skillCooldown.stealth <= 0) this.useStealth();
+                if (keys.has('4') && this.skillCooldown.wax <= 0) this.useWax();
                 
                 this.speedX = 0;
-                const currentMaxSpeed = this.statusEffects.slow.active ? this.maxSpeed / 2 : this.maxSpeed;
+                let currentMaxSpeed = this.maxSpeed;
+                if (this.onPlatform && this.currentPlatform.isWax) currentMaxSpeed *= 0.5; // 蠟質減速
+                if (this.statusEffects.slow.active) currentMaxSpeed *= 0.5;
+
                 if (keys.has('a')) {
                     this.speedX = -currentMaxSpeed;
                     this.direction = 'left';
@@ -361,8 +372,8 @@
             draw(context) {
                 context.save();
                 if (this.invulnerable && Math.floor(this.invulnerabilityTimer / 100) % 2 === 0) { context.globalAlpha = 0.5; }
-                if (this.statusEffects.slow.active) {
-                    context.fillStyle = 'rgba(0, 191, 255, 0.3)';
+                if (this.statusEffects.slow.active || (this.onPlatform && this.currentPlatform.isWax)) {
+                    context.fillStyle = 'rgba(240, 230, 140, 0.4)';
                     context.beginPath();
                     context.arc(this.x + this.width/2, this.y + this.height/2, this.width, 0, Math.PI * 2);
                     context.fill();
@@ -449,6 +460,16 @@
                     this.isStealth = true; this.stealthTimer = this.stealthDuration;
                 }
             }
+            useWax() {
+                if(this.energy >= 60 && this.onPlatform) {
+                    this.energy -= 60;
+                    this.skillCooldown.wax = this.skillCooldownTime.wax;
+                    const waxWidth = 120;
+                    const wax = new Platform(this.game, this.x - waxWidth/2 + this.width/2, this.y + this.height - 10, waxWidth, 20, true);
+                    wax.isWax = true;
+                    this.game.platforms.push(wax);
+                }
+            }
             takeDamage(damage) {
                 if (this.invulnerable || this.isStealth) return;
                 this.health -= damage; this.invulnerable = true; this.invulnerabilityTimer = this.invulnerabilityDuration;
@@ -510,7 +531,7 @@
                 this.speed = 3;
                 this.damage = 5;
                 this.lifespan = 5000;
-                this.attackCooldown = 2000;
+                this.attackCooldown = 500; // *** 修正: CD 0.5s ***
                 this.markedForDeletion = false;
             }
             update(deltaTime) {
@@ -520,7 +541,7 @@
 
                 this.attackCooldown -= deltaTime;
                 if (this.attackCooldown <= 0) {
-                    this.attackCooldown = 2000;
+                    this.attackCooldown = 500;
                     const magicDamage = 20;
                     const companionDamage = magicDamage * 0.8;
                     for(let i = 0; i < 8; i++){
@@ -563,12 +584,19 @@
                     return;
                 }
 
+                let currentSpeed = this.baseSpeed;
+                this.game.platforms.forEach(p => {
+                    if (p.isWax && this.game.isColliding(this, p)) {
+                        currentSpeed *= 0.5;
+                    }
+                });
+                
                 const player = this.game.player;
                 const dx = player.x - this.x;
                 if (dx > 0) {
-                    this.speedX = this.baseSpeed;
+                    this.speedX = currentSpeed;
                 } else if (dx < 0) {
-                    this.speedX = -this.baseSpeed;
+                    this.speedX = -currentSpeed;
                 } else {
                     this.speedX = 0;
                 }
@@ -1034,7 +1062,7 @@
                         if (key === 'enter') this.restartGame();
                         return;
                     }
-                    if (['w', 'a', 'd', 's', 'j', 'k', 'l', '1', '2', '3'].includes(key)) {
+                    if (['w', 'a', 'd', 's', 'j', 'k', 'l', '1', '2', '3', '4'].includes(key)) {
                         e.preventDefault();
                         this.keys.add(key);
                     }
@@ -1049,7 +1077,7 @@
 
                 if (this.gameState !== 'playing') {
                     if (this.gameState === 'start') {
-                         this.player.update(new Set(), deltaTime);
+                         // 在開始畫面時不更新玩家
                     }
                     return;
                 }
@@ -1074,6 +1102,9 @@
                 
                 this.effects.forEach(e => e.update(deltaTime));
                 this.effects = this.effects.filter(e => !e.markedForDeletion);
+                
+                this.platforms.forEach(p => p.update(deltaTime));
+                this.platforms = this.platforms.filter(p => !p.markedForDeletion);
 
                 this.floatingMessages.forEach(m => m.update(deltaTime));
                 this.floatingMessages = this.floatingMessages.filter(m => !m.markedForDeletion);
@@ -1093,7 +1124,7 @@
                 this.background.draw(context);
                 this.platforms.forEach(p => p.draw(context));
                 this.items.forEach(i => i.draw(context));
-                this.player.draw(context);
+                if (this.gameState !== 'start') this.player.draw(context);
                 this.companions.forEach(c => c.draw(context));
                 this.projectiles.forEach(p => p.draw(context));
                 this.enemies.forEach(e => e.draw(context));
@@ -1142,6 +1173,7 @@
                 if (this.camera.shakeDuration > 0) {
                     this.camera.shakeDuration -= deltaTime;
                     this.camera.x += (Math.random() - 0.5) * this.camera.shakeMagnitude;
+                    if(this.camera.shakeDuration <= 0) this.camera.shakeMagnitude = 0;
                 }
             }
             
@@ -1234,7 +1266,9 @@
                             if (this.isColliding(projectile, enemy)) {
                                 enemy.takeDamage(projectile.damage, projectile.attackType);
                                 projectile.markedForDeletion = true;
-                                this.floatingMessages.push(new FloatingMessage(this, enemy.x + enemy.width / 2, enemy.y, String(projectile.damage), 'white'));
+                                if(!(enemy instanceof Anthrax && (projectile.attackType === 'bow' || projectile.attackType === 'magic'))) {
+                                    this.floatingMessages.push(new FloatingMessage(this, enemy.x + enemy.width / 2, enemy.y, String(projectile.damage), 'white'));
+                                }
                                 this.createHitParticles(projectile.x, projectile.y);
                             }
                         });
