@@ -71,7 +71,8 @@
         <h1>杆菌之刃：孢子求生</h1>
         <p>
             移動: <span>A</span> / <span>D</span> | 
-            跳躍: <span>W</span> | 
+            跳躍: <span>W</span> |
+            下落: <span>S</span> | 
             近戰: <span>J</span> | 
             遠程: <span>K</span> | 
             法術: <span>L</span> | 
@@ -83,7 +84,6 @@
         // 遊戲初始化
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-
         let scale = 1;
 
         function resizeCanvas() {
@@ -103,7 +103,7 @@
             }
         }
         
-        // --- 資源與元件類別定義 (已重新排序) ---
+        // --- 元件類別定義 ---
         class UI {
             constructor(game) {
                 this.game = game;
@@ -178,30 +178,26 @@
                 this.level = this.game.level;
             }
             draw(context) {
-                if (this.level <= 2) {
-                    // 荔枝皮外 - 藍天
+                 if (this.level <= 2) {
                     context.fillStyle = '#87CEEB';
-                    context.fillRect(0, 0, this.game.worldWidth, this.game.groundLevel);
+                    context.fillRect(0, 0, this.game.worldWidth, this.game.height);
                 } else {
-                    // 荔枝皮內 - 洞穴
-                    // 根據關卡決定顏色深度
                     const depth = Math.min((this.level - 3) * 0.1, 0.5);
-                    const baseR = 139, baseG = 69, baseB = 19; // SaddleBrown
+                    const baseR = 139, baseG = 69, baseB = 19;
                     const r = baseR * (1 - depth);
                     const g = baseG * (1 - depth);
                     const b = baseB * (1 - depth);
                     context.fillStyle = `rgb(${r},${g},${b})`;
                     context.fillRect(0, 0, this.game.worldWidth, this.game.height);
                     
-                    // 畫出洞穴牆壁
                     const wallColorDarker = `rgb(${r*0.8},${g*0.8},${b*0.8})`;
                     context.fillStyle = wallColorDarker;
-                    const cavernTopHeight = this.game.height * 0.2 * (1 - Math.min((this.level - 3) * 0.2, 0.8)); // 洞穴逐漸變小
+                    const cavernTopHeight = this.game.height * 0.2 * (1 - Math.min((this.level - 3) * 0.2, 0.8));
                     
                     context.beginPath();
                     context.moveTo(0, cavernTopHeight);
                     for (let x = 0; x < this.game.worldWidth; x+=50) {
-                        const randomY = cavernTopHeight + Math.sin(x * 0.01) * 20 * this.game.scale;
+                        const randomY = cavernTopHeight + Math.sin(x * 0.01) * 20;
                         context.lineTo(x, randomY);
                     }
                     context.lineTo(this.game.worldWidth, 0);
@@ -219,7 +215,7 @@
                 this.y = y;
                 this.width = width;
                 this.height = height;
-                this.color = '#5D4037'; // 平台顏色
+                this.color = '#5D4037';
             }
             draw(context){
                 context.fillStyle = this.color;
@@ -230,15 +226,15 @@
         class Player {
             constructor(game) {
                 this.game = game;
-                this.s = this.game.scale; 
-                this.width = 50 * this.s;
-                this.height = 50 * this.s;
-                this.x = 200 * this.s;
-                this.y = this.game.height - 200 * this.s;
+                this.width = 50;
+                this.height = 50;
+                this.x = 200;
+                this.y = this.game.height * 0.9 - this.height;
                 this.speedX = 0;
-                this.maxSpeed = 5;
+                this.maxSpeed = 7;
                 this.vy = 0;
                 this.weight = 0.5;
+                this.onPlatform = false;
                 
                 this.maxHealth = 100;
                 this.health = this.maxHealth;
@@ -248,9 +244,9 @@
                 this.energy = 0;
 
                 this.direction = 'right';
-                this.attackCooldown = 0;
+                this.cooldowns = { sword: 0, bow: 0, magic: 0 };
                 this.skillCooldown = { heal: 0, summon: 0, stealth: 0 };
-                this.skillCooldownTime = { heal: 1000, summon: 5000, stealth: 5000 };
+                this.skillCooldownTime = { heal: 15000, summon: 5000, stealth: 5000 };
                 this.invulnerable = false;
                 this.invulnerabilityDuration = 1000;
                 this.invulnerabilityTimer = 0;
@@ -266,24 +262,25 @@
                 };
             }
             update(keys, deltaTime) {
-                this.s = this.game.scale;
-                this.width = 50 * this.s;
-                this.height = 50 * this.s;
-                const scaledMaxSpeed = this.maxSpeed * this.s;
-                const scaledWeight = this.weight * this.s;
-
                 this.handleStatusEffects(deltaTime);
+                
+                for (const cd in this.cooldowns) {
+                    if (this.cooldowns[cd] > 0) this.cooldowns[cd] -= deltaTime;
+                }
+                 for (const skill in this.skillCooldown) {
+                    if (this.skillCooldown[skill] > 0) this.skillCooldown[skill] -= deltaTime;
+                }
 
-                if (keys.has('j') && this.attackCooldown <= 0) this.swordAttack();
-                if (keys.has('k') && this.attackCooldown <= 0) this.bowAttack();
-                if (keys.has('l') && this.attackCooldown <= 0) this.magicAttack();
+                if (keys.has('j') && this.cooldowns.sword <= 0) this.swordAttack();
+                if (keys.has('k') && this.cooldowns.bow <= 0) this.bowAttack();
+                if (keys.has('l') && this.cooldowns.magic <= 0) this.magicAttack();
 
                 if (keys.has('1') && this.skillCooldown.heal <= 0) this.useHeal();
                 if (keys.has('2') && this.skillCooldown.summon <= 0) this.useSummon();
                 if (keys.has('3') && this.skillCooldown.stealth <= 0) this.useStealth();
                 
                 this.speedX = 0;
-                const currentMaxSpeed = this.statusEffects.slow.active ? scaledMaxSpeed / 2 : scaledMaxSpeed;
+                const currentMaxSpeed = this.statusEffects.slow.active ? this.maxSpeed / 2 : this.maxSpeed;
                 if (keys.has('a')) {
                     this.speedX = -currentMaxSpeed;
                     this.direction = 'left';
@@ -294,44 +291,39 @@
                 }
                 this.x += this.speedX;
 
-                // 世界邊界檢測
                 if (this.x < 0) this.x = 0;
-                if (this.x > this.game.worldWidth - this.width) this.x = this.game.worldWidth - this.width;
+                if (this.x > this.game.worldWidth - this.width) {
+                    this.x = this.game.worldWidth - this.width;
+                }
 
-                // 垂直移動與平台碰撞
                 this.y += this.vy;
-                this.vy += scaledWeight;
+                this.vy += this.weight;
 
-                let onAnyPlatform = false;
+                this.onPlatform = false;
                 this.game.platforms.forEach(platform => {
-                    if (this.vy > 0 && // 只有下落時才檢測
-                        this.x < platform.x + platform.width &&
+                    const isDropping = keys.has('s') && this.y + this.height < platform.y + platform.height;
+                    if (this.vy > 0 && !isDropping &&
                         this.x + this.width > platform.x &&
-                        this.y + this.height > platform.y &&
-                        this.y + this.height - this.vy < platform.y + 1 // 上一幀在平台之上
+                        this.x < platform.x + platform.width &&
+                        this.y + this.height >= platform.y &&
+                        this.y + this.height - this.vy < platform.y + 5
                     ) {
                         this.y = platform.y - this.height;
                         this.vy = 0;
-                        onAnyPlatform = true;
+                        this.onPlatform = true;
                     }
                 });
                 
-                if (keys.has('w') && onAnyPlatform) {
-                    this.vy = -15 * this.s;
+                if (keys.has('w') && this.onPlatform) {
+                    this.vy = -18; 
                 }
                 
-                if (this.attackCooldown > 0) this.attackCooldown -= deltaTime;
-                 for (const skill in this.skillCooldown) {
-                    if (this.skillCooldown[skill] > 0) this.skillCooldown[skill] -= deltaTime;
-                }
-                if (this.invulnerabilityTimer > 0) {
-                    this.invulnerabilityTimer -= deltaTime;
-                    if (this.invulnerabilityTimer <= 0) this.invulnerable = false;
-                }
-                if (this.stealthTimer > 0) {
-                    this.stealthTimer -= deltaTime;
-                    if (this.stealthTimer <= 0) this.isStealth = false;
-                }
+                if (this.invulnerabilityTimer > 0) this.invulnerabilityTimer -= deltaTime;
+                else this.invulnerable = false;
+                
+                if (this.stealthTimer > 0) this.stealthTimer -= deltaTime;
+                else this.isStealth = false;
+
                 if (this.mana < this.maxMana) this.mana += 0.1;
             }
             draw(context) {
@@ -340,7 +332,7 @@
                 if (this.statusEffects.slow.active) {
                     context.fillStyle = 'rgba(0, 191, 255, 0.3)';
                     context.beginPath();
-                    context.arc(this.x + this.width / 2, this.y + this.height/2, this.width, 0, Math.PI * 2);
+                    context.arc(this.x + this.width/2, this.y + this.height/2, this.width, 0, Math.PI * 2);
                     context.fill();
                 }
                 if(this.isStealth) {
@@ -356,9 +348,9 @@
                     context.fillRect(this.x, this.y, this.width, this.height);
                     context.strokeStyle = 'white';
                     context.strokeRect(this.x, this.y, this.width, this.height);
-                    if (this.attackCooldown > 0 && this.lastAttack === 'sword') {
+                    if (this.cooldowns.sword > 200 && this.lastAttack === 'sword') {
                         context.fillStyle = 'white';
-                        const swordW = 50 * this.s; const swordH = 10 * this.s;
+                        const swordW = 50; const swordH = 10;
                         const swordX = this.direction === 'right' ? this.x + this.width : this.x - swordW;
                         context.fillRect(swordX, this.y + this.height * 0.4, swordW, swordH);
                     }
@@ -366,8 +358,8 @@
                 context.restore();
             }
             swordAttack() {
-                this.attackCooldown = 300; this.lastAttack = 'sword';
-                const attackWidth = 60 * this.s; const attackX = this.direction === 'right' ? this.x + this.width : this.x - attackWidth;
+                this.cooldowns.sword = 300; this.lastAttack = 'sword';
+                const attackWidth = 60; const attackX = this.direction === 'right' ? this.x + this.width : this.x - attackWidth;
                 const attackY = this.y; const attackHeight = this.height;
                 this.game.enemies.forEach(enemy => {
                     if (this.game.isColliding({ x: attackX, y: attackY, width: attackWidth, height: attackHeight }, enemy)) {
@@ -380,28 +372,36 @@
             }
             bowAttack() {
                 if(this.mana >= 10) {
-                    this.mana -= 10; this.attackCooldown = 500; this.lastAttack = 'bow';
+                    this.mana -= 10; 
+                    this.cooldowns.bow = 100;
+                    this.lastAttack = 'bow';
                     const projectileX = this.direction === 'right' ? this.x + this.width : this.x;
                     this.game.projectiles.push(new Projectile(this.game, projectileX, this.y + this.height/2, 10, 'player', this.direction));
                 }
             }
             magicAttack() {
                 if(this.mana >= 30) {
-                    this.mana -= 30; this.attackCooldown = 1200; this.lastAttack = 'magic';
+                    this.mana -= 30; 
+                    this.cooldowns.magic = 1200; 
+                    this.lastAttack = 'magic';
                     for(let i = 0; i < 8; i++){
                         this.game.projectiles.push(new Projectile(this.game, this.x + this.width/2, this.y + this.height/2, 20, 'player', null, (Math.PI * 2 / 8) * i, 5));
                     }
                 }
             }
             useHeal() {
-                if(this.energy >= 50) {
-                    this.energy -= 50; this.skillCooldown.heal = this.skillCooldownTime.heal; let healAmount = 0;
+                if(this.energy >= 50 && this.skillCooldown.heal <= 0) {
+                    this.energy -= 50; 
+                    this.skillCooldown.heal = this.skillCooldownTime.heal; 
+                    const totalHeal = this.maxHealth * 0.2;
+                    const healPerTick = totalHeal / 5;
+                    let ticks = 0;
                     const healInterval = setInterval(() => {
-                        this.heal(5);
-                        this.game.floatingMessages.push(new FloatingMessage(this.game, this.x, this.y - 10 * this.s, '+5', '#2ecc71'));
-                        healAmount += 5;
-                        if(healAmount >= 25 || this.game.gameOver) clearInterval(healInterval);
-                    }, 400);
+                        this.heal(healPerTick);
+                        this.game.floatingMessages.push(new FloatingMessage(this.game, this.x, this.y - 10, `+${Math.round(healPerTick)}`, '#2ecc71'));
+                        ticks++;
+                        if(ticks >= 5 || this.game.gameOver) clearInterval(healInterval);
+                    }, 800);
                 }
             }
             heal(amount) { this.health += amount; if (this.health > this.maxHealth) this.health = this.maxHealth; }
@@ -442,14 +442,13 @@
         class Projectile {
             constructor(game, x, y, damage, owner, direction = 'right', angle = null, speed = 10) {
                 this.game = game;
-                this.s = this.game.scale;
-                this.width = 10 * this.s;
-                this.height = 10 * this.s;
+                this.width = 10;
+                this.height = 10;
                 this.x = x;
                 this.y = y;
                 this.damage = damage;
-                this.owner = owner; // 'player' or 'enemy'
-                this.speed = speed * this.s;
+                this.owner = owner; 
+                this.speed = speed;
                 this.markedForDeletion = false;
 
                 if(angle !== null) {
@@ -471,12 +470,11 @@
         class Companion {
             constructor(game, x, y) {
                 this.game = game;
-                this.s = this.game.scale;
-                this.width = 25 * this.s;
-                this.height = 25 * this.s;
+                this.width = 25;
+                this.height = 25;
                 this.x = x;
                 this.y = y;
-                this.speed = 3 * this.s;
+                this.speed = 3;
                 this.damage = 5;
                 this.lifespan = 5000;
                 this.markedForDeletion = false;
@@ -499,11 +497,8 @@
         class Enemy {
              constructor(game, x, y, width, height, health, damage, platform) {
                 this.game = game;
-                this.s = game.scale;
-                this.baseWidth = width;
-                this.baseHeight = height;
-                this.width = width * this.s;
-                this.height = height * this.s;
+                this.width = width;
+                this.height = height;
                 this.x = x;
                 this.y = y;
                 this.platform = platform;
@@ -515,38 +510,32 @@
                 this.markedForDeletion = false;
              }
              update(deltaTime) {
-                this.s = this.game.scale;
-                this.width = this.baseWidth * this.s;
-                this.height = this.baseHeight * this.s;
-
                 const player = this.game.player;
                 const dx = player.x - this.x;
                 if (dx > 0) {
-                    this.speedX = this.baseSpeed * this.s;
+                    this.speedX = this.baseSpeed;
                 } else if (dx < 0) {
-                    this.speedX = -this.baseSpeed * this.s;
+                    this.speedX = -this.baseSpeed;
                 } else {
                     this.speedX = 0;
                 }
                 this.x += this.speedX;
 
                 if(this.platform) {
-                    if(this.x < this.platform.x) {
+                    if(this.x <= this.platform.x) {
                         this.x = this.platform.x;
-                        this.speedX *= -1;
                     }
-                    if(this.x + this.width > this.platform.x + this.platform.width) {
+                    if(this.x + this.width >= this.platform.x + this.platform.width) {
                         this.x = this.platform.x + this.platform.width - this.width;
-                        this.speedX *= -1;
                     }
                 }
              }
              draw(context) {
                 context.fillStyle = this.color || 'red'; context.fillRect(this.x, this.y, this.width, this.height);
                 if(this.health < this.maxHealth){
-                    const healthBarY = this.y - 10 * this.s;
-                    context.fillStyle = 'darkred'; context.fillRect(this.x, healthBarY, this.width, 5 * this.s);
-                    context.fillStyle = 'red'; context.fillRect(this.x, healthBarY, this.width * (this.health / this.maxHealth), 5 * this.s);
+                    const healthBarY = this.y - 10;
+                    context.fillStyle = 'darkred'; context.fillRect(this.x, healthBarY, this.width, 5);
+                    context.fillStyle = 'red'; context.fillRect(this.x, healthBarY, this.width * (this.health / this.maxHealth), 5);
                 }
              }
              takeDamage(damage) {
@@ -564,16 +553,37 @@
             constructor(game, x, y, platform) {
                 super(game, x, y, 60, 60, 50, 10, platform);
                 this.color = '#ff69b4';
-                this.attackCooldown = Math.random() * 1000;
+                this.attackCooldown = Math.random() * 1500;
+                this.atEdge = false;
+                this.edgeTimer = 0;
             }
             update(deltaTime) {
-                super.update(deltaTime);
-                if(this.attackCooldown > 0) this.attackCooldown -= deltaTime;
-                else {
-                    this.attackCooldown = 2000 + Math.random() * 1000;
-                    const direction = (this.game.player.x < this.x) ? 'left' : 'right';
-                    this.game.projectiles.push(new Projectile(this.game, this.x, this.y + this.height / 2, 5, 'enemy', direction));
+                const atLeftEdge = this.x <= this.platform.x;
+                const atRightEdge = this.x + this.width >= this.platform.x + this.platform.width;
+                
+                if (this.platform && (atLeftEdge || atRightEdge)) {
+                    this.atEdge = true;
+                } else {
+                    this.atEdge = false;
+                    this.edgeTimer = 0;
                 }
+
+                if (this.atEdge) {
+                    this.edgeTimer += deltaTime;
+                    this.speedX = 0; // 停在邊緣
+                    if (this.edgeTimer > 3000) {
+                         if(this.attackCooldown <= 0) {
+                             this.attackCooldown = 2000;
+                             const player = this.game.player;
+                             const angle = Math.atan2((player.y + player.height/2) - (this.y + this.height/2), (player.x + player.width/2) - (this.x + this.width/2));
+                             this.game.projectiles.push(new Projectile(this.game, this.x, this.y + this.height/2, 8, 'enemy', null, angle, 4));
+                         }
+                    }
+                } else {
+                    super.update(deltaTime); // 不在邊緣時正常追擊
+                }
+
+                if(this.attackCooldown > 0) this.attackCooldown -= deltaTime;
             }
             draw(context){
                 context.fillStyle = this.color; context.beginPath(); context.arc(this.x + this.width / 2, this.y + this.height/2, this.width/2, 0, Math.PI * 2); context.fill();
@@ -585,43 +595,65 @@
              constructor(game, x, y, platform) {
                 super(game, x, y, 80, 40, 100, 20, platform);
                 this.color = '#800080';
+                this.chargeCooldown = 8000 + Math.random() * 2000;
                 this.isCharging = false;
-                this.chargeCooldown = 3000 + Math.random() * 2000;
-                this.baseSpeed = 0.8;
-            }
-            update(deltaTime) {
-                this.chargeCooldown -= deltaTime;
-                if (this.chargeCooldown <= 0 && !this.isCharging) {
-                    this.isCharging = true;
-                    this.originalSpeed = this.baseSpeed;
-                    this.baseSpeed = 8;
-                    setTimeout(() => {
-                        this.isCharging = false;
-                        this.baseSpeed = this.originalSpeed;
-                        this.chargeCooldown = 3000 + Math.random() * 2000;
-                    }, 500);
+                this.chargeTimer = 0;
+                this.chargeDuration = 5000;
+             }
+             update(deltaTime) {
+                if (this.isCharging) {
+                    this.chargeTimer -= deltaTime;
+                    this.speedX = 0;
+                    if(this.chargeTimer <= 0) {
+                        this.detonate();
+                    }
+                } else {
+                    this.chargeCooldown -= deltaTime;
+                    if(this.chargeCooldown <= 0) {
+                        this.isCharging = true;
+                        this.chargeTimer = this.chargeDuration;
+                    }
+                    super.update(deltaTime);
                 }
-                super.update(deltaTime);
-            }
+             }
+             detonate() {
+                 this.isCharging = false;
+                 this.chargeCooldown = 8000 + Math.random() * 2000;
+                 // 震動效果
+                 this.game.camera.shakeDuration = 500;
+                 this.game.camera.shakeMagnitude = 10;
+                 // 傷害玩家
+                 const player = this.game.player;
+                 if (player.onPlatform && player.y + player.height > this.platform.y && player.y < this.platform.y + this.platform.height) {
+                     player.takeDamage(30);
+                 }
+             }
              draw(context) {
-                context.fillStyle = this.isCharging ? '#c0392b' : this.color; context.fillRect(this.x, this.y, this.width, this.height);
-                context.strokeStyle = 'rgba(255, 255, 255, 0.5)'; context.lineWidth = 3 * this.s; context.strokeRect(this.x - 3*this.s, this.y - 3*this.s, this.width + 6*this.s, this.height + 6*this.s);
+                if (this.isCharging) {
+                    const ratio = 1 - (this.chargeTimer / this.chargeDuration);
+                    const flashSpeed = 10 + ratio * 40; // 頻率加快
+                    const flash = Math.floor(this.chargeTimer / (1000 / flashSpeed)) % 2 === 0;
+                    context.fillStyle = flash ? '#ff0000' : this.color;
+                } else {
+                     context.fillStyle = this.color;
+                }
+                
+                context.fillRect(this.x, this.y, this.width, this.height);
+                context.strokeStyle = 'rgba(255, 255, 255, 0.5)'; context.lineWidth = 3; context.strokeRect(this.x - 3, this.y - 3, this.width + 6, this.height + 6);
                 super.draw(context);
              }
         }
 
         class Phytophthora extends Enemy {
             constructor(game) {
-                const s = game.scale;
-                super(game, game.worldWidth - 300 * s, game.groundLevel - 100 * s, 200, 100, 400, 0);
+                super(game, game.worldWidth - 300, game.height * 0.9 - 100, 200, 100, 400, 0);
                 this.color = '#8b4513';
-                this.x = this.game.worldWidth - this.width - 50 * s;
-                this.y = this.game.groundLevel - this.height;
+                this.x = this.game.worldWidth - this.width - 50;
+                this.y = this.game.height * 0.9 - this.height;
                 this.speedX = 0;
                 this.spawnCooldown = 0;
             }
             update(deltaTime) {
-                this.s = this.game.scale; this.width = this.baseWidth * this.s; this.height = this.baseHeight * this.s;
                 if(this.spawnCooldown > 0) this.spawnCooldown -= deltaTime;
                 else {
                     this.spawnCooldown = 4000;
@@ -638,17 +670,15 @@
         
         class MegaBoss extends Enemy {
             constructor(game) {
-                const s = game.scale;
-                super(game, game.worldWidth - 300 * s, game.groundLevel - 200 * s, 250, 200, 1500, 25);
+                super(game, game.worldWidth - 300, game.height * 0.9 - 200, 250, 200, 1500, 25);
                 this.color = '#581845';
-                this.x = this.game.worldWidth - this.width - 50 * s;
-                this.y = this.game.groundLevel - this.height;
+                this.x = this.game.worldWidth - this.width - 50;
+                this.y = this.game.height * 0.9 - this.height;
                 this.speedX = 0;
                 this.phase = 1;
                 this.attackPatternTimer = 0;
             }
             update(deltaTime) {
-                this.s = this.game.scale; this.width = this.baseWidth * this.s; this.height = this.baseHeight * this.s;
                 this.attackPatternTimer -= deltaTime;
                 if(this.attackPatternTimer <= 0) {
                     this.executeAttackPattern(); this.attackPatternTimer = (this.phase === 1 ? 5000 : 3000) + Math.random() * 2000;
@@ -671,23 +701,21 @@
         class Glu {
             constructor(game, x, y) {
                 this.game = game;
-                this.s = this.game.scale;
-                this.width = 15 * this.s;
-                this.height = 15 * this.s;
+                this.width = 15;
+                this.height = 15;
                 this.x = x;
                 this.y = y;
-                this.vy = -5 * this.s; // 向上彈出
-                this.weight = 0.3 * this.s;
+                this.vy = -5; 
+                this.weight = 0.3;
                 this.markedForDeletion = false;
                 this.healAmount = 10;
             }
             update(deltaTime) {
                 this.y += this.vy;
-                if (this.y < this.game.groundLevel - this.height) {
-                     this.vy += this.weight;
-                } else {
+                this.vy += this.weight;
+                if (this.y > this.game.height * 0.9 - this.height) {
+                    this.y = this.game.height * 0.9 - this.height;
                     this.vy = 0;
-                    this.y = this.game.groundLevel - this.height;
                 }
             }
             draw(context) {
@@ -710,12 +738,11 @@
         class Particle {
             constructor(game, x, y, color) {
                 this.game = game;
-                this.s = game.scale;
                 this.x = x;
                 this.y = y;
-                this.size = Math.random() * 5 * this.s + 2 * this.s;
-                this.speedX = (Math.random() * 3 - 1.5) * this.s;
-                this.speedY = (Math.random() * 3 - 1.5) * this.s;
+                this.size = Math.random() * 5 + 2;
+                this.speedX = (Math.random() * 3 - 1.5);
+                this.speedY = (Math.random() * 3 - 1.5);
                 this.color = color;
                 this.lifespan = 100;
                 this.markedForDeletion = false;
@@ -746,7 +773,7 @@
                 this.color = color;
                 this.lifespan = 1000;
                 this.markedForDeletion = false;
-                this.speedY = -1 * this.game.scale;
+                this.speedY = -1;
                 this.fontSize = 20;
             }
             update(deltaTime) {
@@ -758,7 +785,7 @@
                 context.save();
                 context.globalAlpha = this.lifespan / 1000;
                 context.fillStyle = this.color;
-                context.font = `${this.fontSize * this.game.scale}px "Microsoft JhengHei"`;
+                context.font = `${this.fontSize}px "Microsoft JhengHei"`;
                 context.fillText(this.message, this.x, this.y);
                 context.restore();
             }
@@ -770,9 +797,12 @@
                 this.width = width;
                 this.height = height;
                 this.scale = scale;
-                this.worldWidth = 3000 * this.scale;
-                this.groundLevel = this.height * 0.9;
+                this.worldWidth = 3000;
                 
+                this.platforms = [];
+                this.background = new Background(this);
+                this.generatePlatforms();
+
                 this.player = new Player(this);
                 this.keys = new Set();
                 this.projectiles = [];
@@ -780,12 +810,16 @@
                 this.enemies = [];
                 this.particles = [];
                 this.items = [];
-                this.platforms = [];
                 this.floatingMessages = [];
                 this.ui = new UI(this);
-                this.background = new Background(this);
                 
-                this.cameraX = 0;
+                this.camera = {
+                    x: 0,
+                    y: 0,
+                    deadZoneX: this.width / 3 / this.scale,
+                    shakeDuration: 0,
+                    shakeMagnitude: 0,
+                };
                 
                 this.level = 1;
                 this.gameOver = false;
@@ -804,17 +838,24 @@
                 this.enemiesToSpawn = [];
                 
                 this.setupEventListeners();
+                this.loadLevel();
+                this.setPlayerInitialPosition();
             }
 
             setupEventListeners() {
                 window.addEventListener('keydown', e => {
-                    if (this.gameState === 'start' || this.gameState === 'gameOver' || this.gameWon) {
-                        if (e.key === 'Enter') this.restartGame();
+                    const key = e.key.toLowerCase();
+                    if (this.gameState === 'start') {
+                         if (key === 'enter') this.gameState = 'playing';
+                         return;
+                    }
+                    if (this.gameState === 'gameOver' || this.gameWon) {
+                        if (key === 'enter') this.restartGame();
                         return;
                     }
-                    if (['w', 'a', 'd', 'j', 'k', 'l', '1', '2', '3'].includes(e.key.toLowerCase())) {
+                    if (['w', 'a', 'd', 's', 'j', 'k', 'l', '1', '2', '3'].includes(key)) {
                         e.preventDefault();
-                        this.keys.add(e.key.toLowerCase());
+                        this.keys.add(key);
                     }
                 });
                 window.addEventListener('keyup', e => {
@@ -827,7 +868,7 @@
                 
                 this.spawnEnemies();
                 this.player.update(this.keys, deltaTime);
-                this.updateCamera();
+                this.updateCamera(deltaTime);
             
                 this.projectiles.forEach(p => p.update(deltaTime));
                 this.projectiles = this.projectiles.filter(p => !p.markedForDeletion);
@@ -851,16 +892,13 @@
                 this.checkLevelCompletion();
             }
 
-            draw(context) {
+            draw(context, deltaTime) { // *** 修正: 傳入 deltaTime ***
                 context.clearRect(0, 0, this.width, this.height);
-
-                if (this.gameState === 'start') {
-                    this.drawStartScreen(context);
-                    return;
-                }
                 
                 context.save();
-                context.translate(-this.cameraX, 0);
+                this.updateCamera(deltaTime); 
+                context.scale(this.scale, this.scale); 
+                context.translate(-this.camera.x, -this.camera.y);
 
                 this.background.draw(context);
                 this.platforms.forEach(p => p.draw(context));
@@ -876,22 +914,39 @@
 
                 this.ui.draw(context);
 
+                if (this.gameState === 'start') {
+                    this.drawStartScreen(context);
+                    return;
+                }
                 if (this.gameOver) this.drawGameOverScreen(context, '遊戲結束');
                 if (this.gameWon) this.drawGameOverScreen(context, '恭喜！培養基已淨化！');
                 if (this.gameState === 'levelComplete') this.drawLevelCompleteScreen(context);
             }
 
-            updateCamera() {
-                const targetCameraX = this.player.x - this.width / 2;
-                this.cameraX += (targetCameraX - this.cameraX) * 0.1;
+            updateCamera(deltaTime) {
+                const deadZoneLeft = this.camera.x + this.camera.deadZoneX;
+                const deadZoneRight = this.camera.x + this.width / this.scale - this.camera.deadZoneX;
 
-                if (this.cameraX < 0) this.cameraX = 0;
-                if (this.cameraX > this.worldWidth - this.width) this.cameraX = this.worldWidth - this.width;
+                if(this.player.x < deadZoneLeft) {
+                    this.camera.x = this.player.x - this.camera.deadZoneX;
+                } else if (this.player.x + this.player.width > deadZoneRight) {
+                    this.camera.x = this.player.x + this.player.width - (this.width / this.scale - this.camera.deadZoneX);
+                }
+
+                if (this.camera.x < 0) this.camera.x = 0;
+                if (this.camera.x > this.worldWidth - this.width / this.scale) {
+                    this.camera.x = this.worldWidth - this.width / this.scale;
+                }
+                
+                if (this.camera.shakeDuration > 0) {
+                    this.camera.shakeDuration -= deltaTime;
+                    this.camera.x += (Math.random() - 0.5) * this.camera.shakeMagnitude;
+                }
             }
             
             drawStartScreen(context) {
                 context.save();
-                context.fillStyle = 'black';
+                context.fillStyle = 'rgba(0,0,0,0.7)';
                 context.fillRect(0,0,this.width, this.height);
                 context.textAlign = 'center';
                 context.fillStyle = 'white';
@@ -927,10 +982,24 @@
             }
 
             checkCollisions() {
+                this.projectiles.forEach(p1 => {
+                    if (p1.owner === 'player' && !p1.markedForDeletion) {
+                        this.projectiles.forEach(p2 => {
+                            if (p2.owner === 'enemy' && !p2.markedForDeletion) {
+                                if (this.isColliding(p1, p2)) {
+                                    p1.markedForDeletion = true;
+                                    p2.markedForDeletion = true;
+                                    this.createHitParticles(p1.x, p1.y, '#dda0dd');
+                                }
+                            }
+                        });
+                    }
+                });
+
                 this.projectiles.forEach(projectile => {
-                    if (projectile.owner === 'player') {
+                    if (projectile.owner === 'player' && !projectile.markedForDeletion) {
                         this.enemies.forEach(enemy => {
-                            if (!projectile.markedForDeletion && this.isColliding(projectile, enemy)) {
+                            if (this.isColliding(projectile, enemy)) {
                                 enemy.takeDamage(projectile.damage);
                                 projectile.markedForDeletion = true;
                                 this.floatingMessages.push(new FloatingMessage(this, enemy.x + enemy.width / 2, enemy.y, String(projectile.damage), 'white'));
@@ -938,7 +1007,7 @@
                             }
                         });
                     } 
-                    else if (projectile.owner === 'enemy') {
+                    else if (projectile.owner === 'enemy' && !projectile.markedForDeletion) {
                         if (this.isColliding(this.player, projectile) && !this.player.isStealth) {
                             this.player.takeDamage(projectile.damage);
                             projectile.markedForDeletion = true;
@@ -949,6 +1018,7 @@
                 this.enemies.forEach(enemy => {
                     if (this.isColliding(this.player, enemy) && !this.player.isStealth) {
                         this.player.takeDamage(enemy.damage); 
+                        enemy.takeDamage(enemy.damage); 
                     }
                 });
                 
@@ -979,26 +1049,27 @@
 
             generatePlatforms() {
                 this.platforms = [];
-                const ground = new Platform(this, -100, this.groundLevel, this.worldWidth + 200, this.height - this.groundLevel);
+                const ground = new Platform(this, -100, this.height * 0.9, this.worldWidth + 200, this.height * 0.1);
                 this.platforms.push(ground);
 
-                if (this.level >= 2) { // 從第二關開始有平台
-                    let platformCount = 5 + this.level;
-                    for (let i = 0; i < platformCount; i++) {
-                        const width = (150 + Math.random() * 150) * this.scale;
-                        const height = 20 * this.scale;
-                        const x = Math.random() * (this.worldWidth - width);
-                        const y = this.height * (0.4 + Math.random() * 0.45);
-                        
-                        let overlapping = false;
-                        for(let j=0; j<this.platforms.length; j++){
-                            if(Math.abs(x - this.platforms[j].x) < width + 50 * this.scale && Math.abs(y-this.platforms[j].y) < height + 50 * this.scale){
-                                overlapping = true;
-                                break;
+                if (this.level >= 2) {
+                    const tierYPositions = [this.height * 0.75, this.height * 0.55, this.height * 0.35];
+                    const minGap = 150;
+                    const maxGap = 350;
+                    const minPlatformWidth = 200;
+                    const maxPlatformWidth = 500;
+                    const platformCountMultiplier = 1 + this.level * 0.5;
+
+                    tierYPositions.forEach(y => {
+                        let currentX = 0;
+                        while (currentX < this.worldWidth) {
+                             const platformWidth = minPlatformWidth + Math.random() * (maxPlatformWidth - minPlatformWidth);
+                            if (currentX + platformWidth < this.worldWidth) {
+                                this.platforms.push(new Platform(this, currentX, y, platformWidth, 20));
                             }
+                            currentX += platformWidth + (minGap + Math.random() * (maxGap - minGap));
                         }
-                        if(!overlapping) this.platforms.push(new Platform(this, x, y, width, height));
-                    }
+                    });
                 }
             }
             
@@ -1019,19 +1090,32 @@
                 this.background.updateLevel();
             }
             
+            setPlayerInitialPosition() {
+                 const spawnablePlatforms = this.platforms.filter(p => p.y < this.height * 0.9);
+                if (spawnablePlatforms.length > 0) {
+                    const spawnPlatform = spawnablePlatforms[Math.floor(Math.random() * spawnablePlatforms.length)];
+                    this.player.x = spawnPlatform.x + spawnPlatform.width / 2;
+                    this.player.y = spawnPlatform.y - this.player.height;
+                } else {
+                    this.player.x = 200;
+                    this.player.y = this.height * 0.9 - this.player.height;
+                }
+                 this.player.vy = 0;
+            }
+            
             spawnEnemies() {
                 const currentLevel = this.levelData[this.level - 1];
                 if (this.enemies.length < currentLevel.maxOnScreen && this.enemiesToSpawn.length > 0) {
                     const enemyType = this.enemiesToSpawn.pop();
                     
-                    const spawnPlatforms = this.platforms.filter(p => p.y < this.groundLevel);
+                    const spawnPlatforms = this.platforms.filter(p => p.y < this.height * 0.9);
                     const spawnPlatform = spawnPlatforms.length > 0 ? spawnPlatforms[Math.floor(Math.random() * spawnPlatforms.length)] : this.platforms[0];
                     const spawnX = spawnPlatform.x + Math.random() * spawnPlatform.width;
 
                     if (enemyType === 'Yeast') {
-                        this.enemies.push(new Yeast(this, spawnX, spawnPlatform.y - 60 * this.scale, spawnPlatform));
+                        this.enemies.push(new Yeast(this, spawnX, spawnPlatform.y - 60, spawnPlatform));
                     } else if (enemyType === 'Anthrax') {
-                         this.enemies.push(new Anthrax(this, spawnX, spawnPlatform.y - 40 * this.scale, spawnPlatform));
+                         this.enemies.push(new Anthrax(this, spawnX, spawnPlatform.y - 40, spawnPlatform));
                     } else if (enemyType === 'Phytophthora') {
                         this.enemies.push(new Phytophthora(this));
                     } else if (enemyType === 'MegaBoss') {
@@ -1043,10 +1127,14 @@
             checkLevelCompletion() {
                 if (this.enemies.length === 0 && this.enemiesToSpawn.length === 0 && this.gameState === 'playing' && !this.gameWon) {
                     this.gameState = 'levelComplete';
+                    this.player.heal(this.player.maxHealth * 0.4);
+                    this.floatingMessages.push(new FloatingMessage(this, this.player.x, this.player.y, `關卡恢復! +${Math.round(this.player.maxHealth * 0.4)}HP`, '#2ecc71'));
+                    
                     this.level++;
                     setTimeout(() => {
                         if(!this.gameWon) {
                            this.loadLevel();
+                           this.setPlayerInitialPosition(); 
                            this.gameState = 'playing';
                         }
                     }, 3000);
@@ -1057,7 +1145,9 @@
                 this.level = 1;
                 this.gameOver = false;
                 this.gameWon = false;
+                this.loadLevel();
                 this.player = new Player(this);
+                this.setPlayerInitialPosition();
                 this.projectiles = [];
                 this.companions = [];
                 this.enemies = [];
@@ -1065,7 +1155,6 @@
                 this.items = [];
                 this.floatingMessages = [];
                 this.gameState = 'playing';
-                this.loadLevel();
             }
             
             createHitParticles(x, y, color = 'white') {
@@ -1080,11 +1169,13 @@
         let lastTime = 0;
 
         function animate(timestamp) {
-            const deltaTime = timestamp - lastTime;
+            const deltaTime = (timestamp - lastTime) || 0;
             lastTime = timestamp;
             if (game) {
-                game.update(deltaTime);
-                game.draw(ctx);
+                if(game.gameState === 'playing') {
+                    game.update(deltaTime);
+                }
+                game.draw(ctx, deltaTime); // *** 修正: 將 deltaTime 傳入 draw ***
             }
             requestAnimationFrame(animate);
         }
